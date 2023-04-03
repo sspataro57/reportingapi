@@ -26,7 +26,7 @@ export class PgRdsStack extends Stack {
       secretName: `${props?.stage}-appsync-sample-credentials`,
       generateSecretString: {
         secretStringTemplate: JSON.stringify({
-          username: 'api_readonly',
+          username: 'postgres',
         }),
         excludePunctuation: true,
         includeSpace: false,

@@ -54,7 +54,7 @@ async function cleanup() {
     await client.query('drop role if exists forum_example_person, forum_example_anonymous, lambda_runner;')
     client.release()
     await pgPool.end()
-    config.database = 'api_readonly'
+    config.database = 'postgres'
     pgPool = createDatabaseConnection(config)
     client = await pgPool.connect()
     await client.query('drop database ' + process.env.DATABASE)
@@ -81,7 +81,7 @@ export const handler = async (event: any): Promise<any> => {
   const secrets = JSON.parse(SecretString)
 
   const config = {
-    database: 'api_readonly',
+    database: 'postgres',
     user: process.env.USERNAME!,
     password: signer.getAuthToken({}),
     host: process.env.RDS_PROXY_URL!,
