@@ -16,6 +16,7 @@ import * as Path from 'path'
 import { Architecture, Code, LayerVersion, Runtime } from 'aws-cdk-lib/aws-lambda'
 import * as AppSync from '@aws-cdk/aws-appsync-alpha'
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam'
+import { ISubnet, SubnetFilter } from 'aws-cdk-lib/aws-ec2'
 
 export class AppSyncWithPostgraphile extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
@@ -87,7 +88,7 @@ export class AppSyncWithPostgraphile extends Stack {
     ]
     const lambdaConfig: NodejsFunctionProps = {
       vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_NAT },
+      vpcSubnets: { subnets: [{subnetId: 'subnet-057bc264b93fc00a9'} as ISubnet]  },
       // memorySize: 1024,
       securityGroups: sgs,
       timeout: Duration.seconds(300),

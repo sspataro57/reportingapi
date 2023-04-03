@@ -8,6 +8,9 @@ import AdmZip = require('adm-zip')
 const lambdaClient = new AWS.Lambda()
 const appsyncClient = new AWS.AppSync()
 
+
+console.log('TRACE settings')
+
 const PORT = parseInt(process.env.PORT!)
 const PG_SCHEMAS = (process.env.PG_SCHEMAS || 'postgres').split(',')
 const signer = new AWS.RDS.Signer({
@@ -36,8 +39,11 @@ export const handler = async (event: any): Promise<any> => {
     fs.mkdirSync(dir, { recursive: true })
 
     pgPool = pgPool || (await createDatabaseConnection(config))
-    const schema = await loadGraphqlSchema(pgPool, PG_SCHEMAS, { writeCache: file })
 
+    console.log('TRACE start loadGraphqlSchema')
+    const schema = await loadGraphqlSchema(pgPool, PG_SCHEMAS, { writeCache: file })
+    console.log('TRACE end loadGraphqlSchema')
+   
     await Promise.all([updateLayer(file), updateAppSyncAPI(schema)])
   } catch (error) {
     console.log('oops errors', error)
@@ -131,19 +137,32 @@ const updateAppSyncAPI = async (schema: GraphQLSchema) => {
       definition = definition.replace(new RegExp(`(:\\s+)${wrapper}`, 'g'), `$1${wrappers[wrapper].fieldType}`)
     }
 
+    //chapu
+
     // remove unused payloads
-    definition = definition.replace(/(^\s*#.*$)+\s*type\s+\w+Payload\s*{([^}]*)}/gm, '')
+    //definition = definition.replace(/(^\s*#.*$)+\s*type\s+\w+Payload\s*{([^}]*)}/gm, '')
+
+    definition = definition +'type GetActivitiesFuncPayload{parentId: ID}'
+
+    console.log('**************************')
+    console.log(definition)
+    console.log('**************************')
 
     // start schema creation
+    console.log(`TRACE startSchemaCreation`)
     await appsyncClient.startSchemaCreation({ apiId, definition }).promise()
     let response = await appsyncClient.getSchemaCreationStatus({ apiId }).promise()
-    let status = response.status
+    let status=response.status;
+    let details=response.details;
     while (status !== 'SUCCESS') {
       console.log(`creattion status: ${status}...`)
       if (status === 'FAILED') {
         console.error('>> Schema creation failed! <<', response)
+        console.log('**************************')
+        console.log(details)
         throw new Error(response.details)
-      }
+      } 
+      //aqui si
       await new Promise((r) => setTimeout(r, 250))
       status = (await appsyncClient.getSchemaCreationStatus({ apiId }).promise()).status
     }

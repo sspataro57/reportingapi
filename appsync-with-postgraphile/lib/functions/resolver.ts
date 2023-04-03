@@ -6,7 +6,7 @@ import { AppSyncResolverEvent } from 'aws-lambda'
 import { createDatabaseConnection, loadGraphqlSchema, toFlatMap } from '../utils'
 
 const PORT = parseInt(process.env.PORT!)
-const PG_SCHEMAS = (process.env.PG_SCHEMAS || 'postgres').split(',')
+const PG_SCHEMAS = (process.env.PG_SCHEMAS || 'api_readonly').split(',')
 const signer = new AWS.RDS.Signer({
   region: process.env.REGION,
   port: PORT,

@@ -1,0 +1,11 @@
+#!/usr/bin/bash
+
+export REGION="us-west-2"
+export RDSPROXYNAME="api" # the rds proxy name
+export SECURITYGROUPID="sg-0d8af1ef0462460ee" # the security group to assign your Lambda Function ENI
+export USERNAME="api_readonly" # username/role that will be used to execute SQL queries on database
+export DATABASE="warehouse" # database to connect to
+export SCHEMAS="collab,users" # schemas to access. e.g: schema1,schema2,schema3
+
+
+npm run deploy -- --region $REGION --proxy $RDSPROXYNAME --sg $SECURITYGROUPID --username $USERNAME --database $DATABASE --schemas $SCHEMAS

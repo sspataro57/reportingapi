@@ -35,7 +35,7 @@ export class PgSchemaStack extends Stack {
     const environment = {
       REGION: region,
       RDS_PROXY_URL: props.rdsProxy.endpoint,
-      USERNAME: 'postgres',
+      USERNAME: 'api_readonly',
       PORT: props.port,
       DATABASE: database,
       SECRET_ARN: props.lambdaRunnerSecret.secretArn,
@@ -59,7 +59,7 @@ export class PgSchemaStack extends Stack {
       entry: Path.join(__dirname, 'functions', 'dbschema.ts'),
       ...lambdaConfig,
     })
-    props.rdsProxy.grantConnect(dbSchemaHandler, 'postgres')
+    props.rdsProxy.grantConnect(dbSchemaHandler, 'api_readonly')
     props.lambdaRunnerSecret.grantRead(dbSchemaHandler)
 
     new CfnOutput(this, 'dbSchemaHandlerName', { value: dbSchemaHandler.functionName })
