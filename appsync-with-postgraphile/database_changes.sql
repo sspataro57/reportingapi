@@ -37,6 +37,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+comment on function collab.GetActivityIDsFunc(varchar, text, timestamp, timestamp, jsonb, character varying[], double precision, double precision, double precision, boolean) is '@omit: "create,update,delete"';
+
 -------------- collab.GetActivityCountFunc ----------------------------
 drop function if exists collab.GetActivityCountFunc;
 
@@ -123,10 +125,10 @@ COMMENT ON FUNCTION collab.GetActivityIDsFunc(
 drop function if exists collab.GetActivitiesFunc;
 CREATE OR REPLACE FUNCTION collab.GetActivitiesFunc(
     p_portal_id varchar,
-    sort_column text DEFAULT 'created',
-    sort_direction text DEFAULT 'ASC',
-    limit_val integer DEFAULT 100,
-    offset_val integer DEFAULT 0,
+    p_sort_by text DEFAULT 'created',
+    p_sort_dir text DEFAULT 'ASC',
+    p_limit integer DEFAULT 100,
+    p_offset integer DEFAULT 0,
     p_status text DEFAULT NULL,
     p_start_time timestamp DEFAULT NULL,
     p_end_time timestamp DEFAULT NULL,
@@ -220,37 +222,21 @@ BEGIN
     FROM collab.activities inner join
        (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id, p_longitude, p_latitude, p_distance, p_virtual_location)) ids
                       on collab.activities.id=ids.ret_id
-    ORDER BY CASE WHEN sort_direction = 'DESC' THEN $1 END DESC,
-             CASE WHEN sort_direction = 'ASC' THEN $1 END ASC
-    LIMIT limit_val
-    OFFSET offset_val;
+    ORDER BY CASE WHEN p_sort_dir = 'DESC' THEN $1 END DESC,
+             CASE WHEN p_sort_dir = 'ASC' THEN $1 END ASC
+    LIMIT p_limit
+    OFFSET p_offset;
 END;
 $$ LANGUAGE plpgsql;
 
-GRANT EXECUTE ON FUNCTION collab.GetActivitiesFunc(
-    p_portal_id varchar,
-    sort_column text,
-    sort_direction text,
-    limit_val integer,
-    offset_val integer,
-    p_status text ,
-    p_start_time timestamp ,
-    p_end_time timestamp ,
-    p_focus_areas jsonb ,
-    p_program_id varchar[],
-    p_longitude double precision ,
-    p_latitude double precision ,
-    p_distance double precision ,
-    p_virtual_location boolean
-) TO api_readonly;
 
 
 GRANT EXECUTE ON FUNCTION collab.GetActivitiesFunc(
     p_portal_id varchar,
-    sort_column text,
-    sort_direction text,
-    limit_val integer,
-    offset_val integer,
+    p_sort_by text,
+    p_sort_dir text,
+    p_limit integer,
+    p_offset integer,
     p_status text ,
     p_start_time timestamp ,
     p_end_time timestamp ,
@@ -265,10 +251,10 @@ GRANT EXECUTE ON FUNCTION collab.GetActivitiesFunc(
 
 COMMENT ON FUNCTION collab.GetActivitiesFunc(
     p_portal_id varchar,
-    sort_column text,
-    sort_direction text,
-    limit_val integer,
-    offset_val integer,
+    p_sort_by text,
+    p_sort_dir text,
+    p_limit integer,
+    p_offset integer,
     p_status text ,
     p_start_time timestamp ,
     p_end_time timestamp ,
@@ -279,3 +265,169 @@ COMMENT ON FUNCTION collab.GetActivitiesFunc(
     p_distance double precision ,
     p_virtual_location boolean
 ) IS E'@name GetActivitiesFunc';
+
+
+----------------------------   GetFacStaffCountFunc -----------------------------
+
+CREATE OR REPLACE FUNCTION collab.GetFacStaffCountFunc(
+    p_portal_id varchar,
+    p_status text DEFAULT NULL,
+    p_start_time timestamp DEFAULT NULL,
+    p_end_time timestamp DEFAULT NULL,
+    p_focus_areas jsonb DEFAULT NULL,
+    p_program_id varchar[] DEFAULT NULL::varchar[],
+    p_longitude double precision DEFAULT NULL,
+    p_latitude double precision DEFAULT NULL,
+    p_distance double precision DEFAULT NULL,
+    p_virtual_location boolean DEFAULT NULL
+)
+RETURNS integer
+AS $$
+DECLARE
+    ret_count integer;
+BEGIN
+    SELECT count(distinct u.id)
+    INTO ret_count
+    FROM users.users u
+        INNER JOIN users.user_emails em ON u.id = em.user_id
+        INNER JOIN users.user_associations ua ON u.id = ua.user_id
+        INNER JOIN (
+            SELECT ret_id, distance
+            FROM collab.GetActivityIDsFunc(
+                p_portal_id,
+                p_status,
+                p_start_time,
+                p_end_time,
+                p_focus_areas,
+                p_program_id,
+                p_longitude,
+                p_latitude,
+                p_distance,
+                p_virtual_location
+            )
+        ) ids ON ua.entity_id = ids.ret_id AND type <> 'proxy';
+
+    RETURN ret_count;
+END;
+$$ LANGUAGE plpgsql;
+
+
+GRANT EXECUTE ON FUNCTION collab.GetFacStaffCountFunc(
+    p_portal_id varchar,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean
+) TO api_readonly;
+
+
+COMMENT ON FUNCTION collab.GetFacStaffCountFunc(
+    p_portal_id varchar,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean
+) IS E'@name GetFacStaffCountFunc';
+
+drop function if exists collab.GetFacStaffFunc;
+CREATE OR REPLACE FUNCTION collab.GetFacStaffFunc(
+    p_portal_id varchar,
+    p_sort_by varchar DEFAULT 'firstname,lastname',
+    p_sort_dir varchar DEFAULT 'ASC',
+    p_limit integer DEFAULT 100,
+    p_offset integer DEFAULT 0,
+    p_status text DEFAULT NULL,
+    p_start_time timestamp DEFAULT NULL,
+    p_end_time timestamp DEFAULT NULL,
+    p_focus_areas jsonb DEFAULT NULL,
+    p_program_id varchar[] DEFAULT NULL::varchar[],
+    p_longitude double precision DEFAULT NULL,
+    p_latitude double precision DEFAULT NULL,
+    p_distance double precision DEFAULT NULL,
+    p_virtual_location boolean DEFAULT NULL
+)
+RETURNS TABLE (
+    user_id text,
+    firstname text,
+    lastname text,
+    email text
+)
+AS $$
+#variable_conflict use_column
+BEGIN
+    RETURN QUERY SELECT u.id::text, u.firstname, u.lastname, em.email
+                 FROM users.users u
+                          INNER JOIN users.user_emails em ON u.id = em.user_id
+                          INNER JOIN users.user_associations ua ON u.id = ua.user_id
+                          INNER JOIN (
+                              SELECT ret_id, distance
+                              FROM collab.GetActivityIDsFunc(
+                                  p_portal_id,
+                                  p_status,
+                                  p_start_time,
+                                  p_end_time,
+                                  p_focus_areas,
+                                  p_program_id,
+                                  p_longitude,
+                                  p_latitude,
+                                  p_distance,
+                                  p_virtual_location
+                              )
+                          ) ids ON ua.entity_id = ids.ret_id AND type <> 'proxy'
+                 group by u.id, u.firstname, u.lastname, em.email
+                 ORDER BY
+                     CASE WHEN p_sort_by = 'firstname' AND upper(p_sort_dir)  = 'ASC' THEN (u.firstname,u.lastname) END ASC,
+                     CASE WHEN p_sort_by = 'firstname' AND upper(p_sort_dir) = 'DESC' THEN (u.firstname,u.lastname) END DESC,
+                     CASE WHEN p_sort_by = 'lastname' AND upper(p_sort_dir) = 'ASC' THEN (u.lastname,u.firstname) END ASC,
+                     CASE WHEN p_sort_by = 'lastname' AND upper(p_sort_dir) = 'DESC' THEN (u.lastname,u.firstname) END DESC,
+                     u.id ASC
+                 LIMIT p_limit
+                 OFFSET p_offset;
+END;
+$$ LANGUAGE plpgsql;
+
+
+GRANT EXECUTE ON FUNCTION collab.GetFacStaffFunc(
+    p_portal_id varchar,
+    p_sort_by varchar,
+    p_sort_dir varchar,
+    p_limit integer,
+    p_offset integer,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean
+) TO api_readonly;
+
+
+COMMENT ON FUNCTION collab.GetFacStaffFunc(
+    p_portal_id varchar,
+    p_sort_by varchar,
+    p_sort_dir varchar,
+    p_limit integer,
+    p_offset integer,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean
+)  IS E'@name GetFacStaffFunc';
