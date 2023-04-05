@@ -639,6 +639,47 @@ BEGIN
                                                       p_virtual_location)) ids
                       on p.activity_id = ids.ret_id
                           inner join collab.organizations org on p.community_id = org.id
+                GROUP BY
+                        org.insert_timestamp,
+                        org.id,
+                        org.type,
+                        org.author_id,
+                        org.created,
+                        org.modified,
+                        org.archived,
+                        org.deleted,
+                        org.slug,
+                        org.vanity,
+                        org.name,
+                        org.description,
+                        org.latitude,
+                        org.longitude,
+                        org.logo_id,
+                        org.logo_url,
+                        org.url,
+                        org.external_id,
+                        org.portal,
+                        org.welcome_message,
+                        org.office_name,
+                        org.allow_offline,
+                        org.mission_statement,
+                        org.email,
+                        org.phone,
+                        org.fax,
+                        org.disable_email_notifications,
+                        org.registrar_url,
+                        org.course_catalog_url,
+                        org.street,
+                        org.street2,
+                        org.city,
+                        org.state,
+                        org.county,
+                        org.zipcode,
+                        org.zipcode_addon,
+                        org.country,
+                        org.modified_by,
+                        org.status,
+                        org.parent_id                          
                  ORDER BY CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'ASC' THEN org.name END ASC,
                           CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN org.name END DESC,
                           org.id ASC
@@ -684,3 +725,291 @@ COMMENT ON FUNCTION collab.getCommunityPartnersFunc(
     p_distance double precision,
     p_virtual_location boolean
 ) IS E'@name GetCommunityPartnersFunc';
+
+
+------------------  GetInstitutionalPartnersCountFunc --------------------
+
+drop function if exists collab.getInstitutionalPartnersCountFunc;
+CREATE OR REPLACE FUNCTION collab.getInstitutionalPartnersCountFunc(
+    p_portal_id varchar,
+    p_status text DEFAULT NULL,
+    p_start_time timestamp DEFAULT NULL,
+    p_end_time timestamp DEFAULT NULL,
+    p_focus_areas jsonb DEFAULT NULL,
+    p_program_id varchar[] DEFAULT NULL::varchar[],
+    p_unit_id varchar[] DEFAULT NULL::varchar[],
+    p_longitude double precision DEFAULT NULL,
+    p_latitude double precision DEFAULT NULL,
+    p_distance double precision DEFAULT NULL,
+    p_virtual_location boolean DEFAULT NULL
+)
+     RETURNS integer
+AS
+$$
+    # variable_conflict use_column
+DECLARE
+    ret_count integer;
+BEGIN
+    SELECT count(distinct org.id)
+    INTO ret_count
+                 from collab.activity_to_institutional_partners p
+                          inner join
+                      (SELECT ret_id, distance
+                       FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas,
+                                                      p_program_id, p_unit_id, p_longitude, p_latitude, p_distance,
+                                                      p_virtual_location)) ids
+                      on p.activity_id = ids.ret_id
+                          inner join collab.organizations org on p.institution_id = org.id;
+        RETURN ret_count;
+END;
+$$ LANGUAGE plpgsql;
+
+
+
+GRANT EXECUTE ON FUNCTION collab.getInstitutionalPartnersCountFunc(
+    p_portal_id varchar,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean
+) TO api_readonly;
+
+
+COMMENT ON FUNCTION collab.getInstitutionalPartnersCountFunc(
+    p_portal_id varchar,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean
+) IS E'@name GetInstitutionalPartnersCountFunc';
+
+
+
+
+
+-------------------- collab.getInstitutionalPartnersFunc ------------------------
+
+
+drop function if exists collab.getInstitutionalPartnersFunc;
+CREATE OR REPLACE FUNCTION collab.getInstitutionalPartnersFunc(
+    p_portal_id varchar,
+    p_sort_by varchar DEFAULT 'firstname,lastname',
+    p_sort_dir varchar DEFAULT 'ASC',
+    p_limit integer DEFAULT 100,
+    p_offset integer DEFAULT 0,
+    p_status text DEFAULT NULL,
+    p_start_time timestamp DEFAULT NULL,
+    p_end_time timestamp DEFAULT NULL,
+    p_focus_areas jsonb DEFAULT NULL,
+    p_program_id varchar[] DEFAULT NULL::varchar[],
+    p_unit_id varchar[] DEFAULT NULL::varchar[],
+    p_longitude double precision DEFAULT NULL,
+    p_latitude double precision DEFAULT NULL,
+    p_distance double precision DEFAULT NULL,
+    p_virtual_location boolean DEFAULT NULL
+)
+    RETURNS TABLE
+            (
+                insert_timestamp            TIMESTAMP with time zone,
+                id                          text,
+                type                        text,
+                author_id                   text,
+                created                     TIMESTAMP with time zone,
+                modified                    TIMESTAMP with time zone,
+                archived                    BOOLEAN,
+                deleted                     BOOLEAN,
+                slug                        CHAR(9),
+                vanity                      TEXT,
+                name                        TEXT,
+                description                 TEXT,
+                latitude                    NUMERIC(8, 6),
+                longitude                   NUMERIC(9, 6),
+                logo_id                     UUID,
+                logo_url                    TEXT,
+                url                         TEXT,
+                external_id                 VARCHAR(100),
+                portal                      BOOLEAN,
+                welcome_message             TEXT,
+                office_name                 TEXT,
+                allow_offline               BOOLEAN,
+                mission_statement           TEXT,
+                email                       TEXT,
+                phone                       TEXT,
+                fax                         TEXT,
+                disable_email_notifications BOOLEAN,
+                registrar_url               TEXT,
+                course_catalog_url          TEXT,
+                street                      TEXT,
+                street2                     TEXT,
+                city                        TEXT,
+                state                       VARCHAR(3),
+                county                      TEXT,
+                zipcode                     VARCHAR(25),
+                zipcode_addon               INTEGER,
+                country                     CHAR(2),
+                modified_by                 TEXT,
+                status                      TEXT,
+                parent_id                   TEXT
+            )
+AS
+$$
+    # variable_conflict use_column
+BEGIN
+    RETURN QUERY SELECT org.insert_timestamp,
+                        org.id::text,
+                        org.type,
+                        org.author_id::text,
+                        org.created,
+                        org.modified,
+                        org.archived,
+                        org.deleted,
+                        org.slug,
+                        org.vanity,
+                        org.name,
+                        org.description,
+                        org.latitude,
+                        org.longitude,
+                        org.logo_id,
+                        org.logo_url,
+                        org.url,
+                        org.external_id,
+                        org.portal,
+                        org.welcome_message,
+                        org.office_name,
+                        org.allow_offline,
+                        org.mission_statement,
+                        org.email,
+                        org.phone,
+                        org.fax,
+                        org.disable_email_notifications,
+                        org.registrar_url,
+                        org.course_catalog_url,
+                        org.street,
+                        org.street2,
+                        org.city,
+                        org.state,
+                        org.county,
+                        org.zipcode,
+                        org.zipcode_addon,
+                        org.country,
+                        org.modified_by::text,
+                        org.status,
+                        org.parent_id::text
+                 from collab.activity_to_institutional_partners p
+                          inner join
+                      (SELECT ret_id, distance
+                       FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas,
+                                                      p_program_id, p_unit_id, p_longitude, p_latitude, p_distance,
+                                                      p_virtual_location)) ids
+                      on p.activity_id = ids.ret_id
+                          inner join collab.organizations org on p.institution_id = org.id
+                 GROUP BY
+                        org.insert_timestamp,
+                        org.id,
+                        org.type,
+                        org.author_id,
+                        org.created,
+                        org.modified,
+                        org.archived,
+                        org.deleted,
+                        org.slug,
+                        org.vanity,
+                        org.name,
+                        org.description,
+                        org.latitude,
+                        org.longitude,
+                        org.logo_id,
+                        org.logo_url,
+                        org.url,
+                        org.external_id,
+                        org.portal,
+                        org.welcome_message,
+                        org.office_name,
+                        org.allow_offline,
+                        org.mission_statement,
+                        org.email,
+                        org.phone,
+                        org.fax,
+                        org.disable_email_notifications,
+                        org.registrar_url,
+                        org.course_catalog_url,
+                        org.street,
+                        org.street2,
+                        org.city,
+                        org.state,
+                        org.county,
+                        org.zipcode,
+                        org.zipcode_addon,
+                        org.country,
+                        org.modified_by,
+                        org.status,
+                        org.parent_id
+                 ORDER BY CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'ASC' THEN org.name END ASC,
+                          CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN org.name END DESC,
+                          org.id ASC
+                 LIMIT p_limit OFFSET p_offset;
+END;
+$$ LANGUAGE plpgsql;
+
+
+
+GRANT EXECUTE ON FUNCTION collab.getInstitutionalPartnersFunc(
+    p_portal_id varchar,
+    p_sort_by varchar,
+    p_sort_dir varchar,
+    p_limit integer,
+    p_offset integer,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean
+) TO api_readonly;
+
+
+COMMENT ON FUNCTION collab.getInstitutionalPartnersFunc(
+    p_portal_id varchar,
+    p_sort_by varchar,
+    p_sort_dir varchar,
+    p_limit integer,
+    p_offset integer,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean
+) IS E'@name GetInstitutionalPartnersFunc';
+
+
+select * from  collab.getInstitutionalPartnersFunc('b1bd6358-1f1f-43e1-4457-6aac535e041a')
+
+
+
+
+
+
+
+
+ 
