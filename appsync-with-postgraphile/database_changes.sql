@@ -9,6 +9,7 @@ CREATE OR REPLACE FUNCTION collab.GetActivityIDsFunc(
     p_end_time timestamp DEFAULT NULL,
     p_focus_areas jsonb DEFAULT NULL,
     p_program_id varchar[] DEFAULT NULL::varchar[],
+    p_unit_id varchar[] DEFAULT NULL::varchar[],
     p_longitude double precision DEFAULT NULL,
     p_latitude double precision DEFAULT NULL,
     p_distance double precision DEFAULT NULL,
@@ -26,6 +27,7 @@ BEGIN
                    AND (p_end_time IS NULL OR start_time < p_end_time + interval '1 second')
                    AND (p_focus_areas IS NULL OR focus_areas @> p_focus_areas)
                    AND (p_program_id IS NULL OR id IN (SELECT activity_id FROM collab.activity_to_programs WHERE program_id = ANY (CAST(p_program_id AS uuid[]))))
+                   AND (p_unit_id IS NULL OR id IN (SELECT activity_id FROM collab.activity_to_units WHERE unit_id = ANY (CAST(p_unit_id AS uuid[]))))
                    AND (
                        p_longitude IS NULL AND p_latitude IS NULL
                        OR (
@@ -37,7 +39,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-comment on function collab.GetActivityIDsFunc(varchar, text, timestamp, timestamp, jsonb, character varying[], double precision, double precision, double precision, boolean) is '@omit: "create,update,delete"';
+
+comment on function collab.GetActivityIDsFunc(varchar, text, timestamp, timestamp, jsonb, character varying[],character varying[], double precision, double precision, double precision, boolean) is '@omit: "create,update,delete"';
 
 -------------- collab.GetActivityCountFunc ----------------------------
 drop function if exists collab.GetActivityCountFunc;
@@ -49,6 +52,7 @@ CREATE OR REPLACE FUNCTION collab.GetActivityCountFunc(
     p_end_time timestamp DEFAULT NULL,
     p_focus_areas jsonb DEFAULT NULL,
     p_program_id varchar[] DEFAULT NULL::varchar[],
+    p_unit_id varchar[] DEFAULT NULL::varchar[],
     p_longitude double precision DEFAULT NULL,
     p_latitude double precision DEFAULT NULL,
     p_distance double precision DEFAULT NULL,
@@ -60,7 +64,7 @@ AS $$
 BEGIN
     RETURN QUERY SELECT portal_id::varchar, count(id)
                  FROM collab.activities
-                 WHERE id IN (SELECT ret_id FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id, p_longitude, p_latitude, p_distance, p_virtual_location))
+                 WHERE id IN (SELECT ret_id FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location))
                  GROUP BY portal_id;
 END;
 $$ LANGUAGE plpgsql;
@@ -74,6 +78,7 @@ GRANT EXECUTE ON FUNCTION collab.GetActivityIDsFunc(
     p_end_time timestamp ,
     p_focus_areas jsonb ,
     p_program_id varchar[] ,
+    p_unit_id varchar[],
     p_longitude double precision ,
     p_latitude double precision ,
     p_distance double precision ,
@@ -87,6 +92,7 @@ GRANT EXECUTE ON FUNCTION collab.GetActivityCountFunc(
     p_end_time timestamp ,
     p_focus_areas jsonb ,
     p_program_id varchar[] ,
+    p_unit_id varchar[],
     p_longitude double precision ,
     p_latitude double precision ,
     p_distance double precision ,
@@ -100,6 +106,7 @@ COMMENT ON FUNCTION collab.GetActivityCountFunc(
     p_end_time timestamp ,
     p_focus_areas jsonb ,
     p_program_id varchar[] ,
+    p_unit_id varchar[],
     p_longitude double precision ,
     p_latitude double precision ,
     p_distance double precision ,
@@ -113,6 +120,7 @@ COMMENT ON FUNCTION collab.GetActivityIDsFunc(
     p_end_time timestamp ,
     p_focus_areas jsonb ,
     p_program_id varchar[] ,
+    p_unit_id varchar[],
     p_longitude double precision ,
     p_latitude double precision ,
     p_distance double precision ,
@@ -134,6 +142,7 @@ CREATE OR REPLACE FUNCTION collab.GetActivitiesFunc(
     p_end_time timestamp DEFAULT NULL,
     p_focus_areas jsonb DEFAULT NULL,
     p_program_id varchar[] DEFAULT NULL::varchar[],
+    p_unit_id varchar[] DEFAULT NULL::varchar[],
     p_longitude double precision DEFAULT NULL,
     p_latitude double precision DEFAULT NULL,
     p_distance double precision DEFAULT NULL,
@@ -220,7 +229,7 @@ BEGIN
     RETURN QUERY
     SELECT collab.activities.*,ids.distance
     FROM collab.activities inner join
-       (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id, p_longitude, p_latitude, p_distance, p_virtual_location)) ids
+       (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location)) ids
                       on collab.activities.id=ids.ret_id
     ORDER BY CASE WHEN p_sort_dir = 'DESC' THEN $1 END DESC,
              CASE WHEN p_sort_dir = 'ASC' THEN $1 END ASC
@@ -242,6 +251,7 @@ GRANT EXECUTE ON FUNCTION collab.GetActivitiesFunc(
     p_end_time timestamp ,
     p_focus_areas jsonb ,
     p_program_id varchar[],
+    p_unit_id varchar[],
     p_longitude double precision ,
     p_latitude double precision ,
     p_distance double precision ,
@@ -260,6 +270,7 @@ COMMENT ON FUNCTION collab.GetActivitiesFunc(
     p_end_time timestamp ,
     p_focus_areas jsonb ,
     p_program_id varchar[],
+    p_unit_id varchar[],
     p_longitude double precision ,
     p_latitude double precision ,
     p_distance double precision ,
@@ -268,7 +279,7 @@ COMMENT ON FUNCTION collab.GetActivitiesFunc(
 
 
 ----------------------------   GetFacStaffCountFunc -----------------------------
-
+drop function if exists collab.GetFacStaffCountFunc;
 CREATE OR REPLACE FUNCTION collab.GetFacStaffCountFunc(
     p_portal_id varchar,
     p_status text DEFAULT NULL,
@@ -276,6 +287,7 @@ CREATE OR REPLACE FUNCTION collab.GetFacStaffCountFunc(
     p_end_time timestamp DEFAULT NULL,
     p_focus_areas jsonb DEFAULT NULL,
     p_program_id varchar[] DEFAULT NULL::varchar[],
+    p_unit_id varchar[] DEFAULT NULL::varchar[],
     p_longitude double precision DEFAULT NULL,
     p_latitude double precision DEFAULT NULL,
     p_distance double precision DEFAULT NULL,
@@ -300,6 +312,7 @@ BEGIN
                 p_end_time,
                 p_focus_areas,
                 p_program_id,
+                p_unit_id,
                 p_longitude,
                 p_latitude,
                 p_distance,
@@ -319,6 +332,7 @@ GRANT EXECUTE ON FUNCTION collab.GetFacStaffCountFunc(
     p_end_time timestamp,
     p_focus_areas jsonb,
     p_program_id varchar[],
+    p_unit_id varchar[],
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
@@ -333,6 +347,7 @@ COMMENT ON FUNCTION collab.GetFacStaffCountFunc(
     p_end_time timestamp,
     p_focus_areas jsonb,
     p_program_id varchar[],
+    p_unit_id varchar[],
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
@@ -351,6 +366,7 @@ CREATE OR REPLACE FUNCTION collab.GetFacStaffFunc(
     p_end_time timestamp DEFAULT NULL,
     p_focus_areas jsonb DEFAULT NULL,
     p_program_id varchar[] DEFAULT NULL::varchar[],
+    p_unit_id varchar[] DEFAULT NULL::varchar[],
     p_longitude double precision DEFAULT NULL,
     p_latitude double precision DEFAULT NULL,
     p_distance double precision DEFAULT NULL,
@@ -378,6 +394,7 @@ BEGIN
                                   p_end_time,
                                   p_focus_areas,
                                   p_program_id,
+                                  p_unit_id,
                                   p_longitude,
                                   p_latitude,
                                   p_distance,
@@ -408,6 +425,7 @@ GRANT EXECUTE ON FUNCTION collab.GetFacStaffFunc(
     p_end_time timestamp,
     p_focus_areas jsonb,
     p_program_id varchar[],
+    p_unit_id varchar[],
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
@@ -426,6 +444,7 @@ COMMENT ON FUNCTION collab.GetFacStaffFunc(
     p_end_time timestamp,
     p_focus_areas jsonb,
     p_program_id varchar[],
+    p_unit_id varchar[],
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
