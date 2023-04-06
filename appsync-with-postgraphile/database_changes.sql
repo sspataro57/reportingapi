@@ -1003,7 +1003,206 @@ COMMENT ON FUNCTION collab.getInstitutionalPartnersFunc(
 ) IS E'@name GetInstitutionalPartnersFunc';
 
 
-select * from  collab.getInstitutionalPartnersFunc('b1bd6358-1f1f-43e1-4457-6aac535e041a')
+----------------------- UNIT partners count --------------------------------
+drop function if exists collab.GetUnitPartnersCountFunc;
+CREATE OR REPLACE FUNCTION collab.GetUnitPartnersCountFunc(
+    p_portal_id varchar,
+    p_status text DEFAULT NULL,
+    p_start_time timestamp DEFAULT NULL,
+    p_end_time timestamp DEFAULT NULL,
+    p_focus_areas jsonb DEFAULT NULL,
+    p_program_id varchar[] DEFAULT NULL::varchar[],
+    p_unit_id varchar[] DEFAULT NULL::varchar[],
+    p_longitude double precision DEFAULT NULL,
+    p_latitude double precision DEFAULT NULL,
+    p_distance double precision DEFAULT NULL,
+    p_virtual_location boolean DEFAULT NULL
+)    RETURNS integer
+AS $$
+    # variable_conflict use_column
+DECLARE
+    ret_count integer;
+BEGIN
+    SELECT count(distinct u.id)
+    INTO ret_count
+FROM collab.units u
+         inner join collab.activity_to_units au on u.id = au.unit_id
+         inner join
+     (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location)) ids
+     on au.activity_id = ids.ret_id;
+   RETURN ret_count;
+END;
+$$ LANGUAGE plpgsql;
+
+GRANT EXECUTE ON FUNCTION collab.GetUnitPartnersCountFunc(
+    p_portal_id varchar,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean
+) TO api_readonly;
+
+
+COMMENT ON FUNCTION collab.GetUnitPartnersCountFunc(
+    p_portal_id varchar,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean
+) IS E'@name GetUnitPartnersCountFunc';
+
+----------------------- UNIT partners --------------------------------
+
+
+drop function if exists collab.GetUnitPartnersFunc;
+CREATE OR REPLACE FUNCTION collab.GetUnitPartnersFunc(
+    p_portal_id varchar,
+    p_sort_by varchar DEFAULT 'name',
+    p_sort_dir varchar DEFAULT 'ASC',
+    p_limit integer DEFAULT 100,
+    p_offset integer DEFAULT 0,
+    p_status text DEFAULT NULL,
+    p_start_time timestamp DEFAULT NULL,
+    p_end_time timestamp DEFAULT NULL,
+    p_focus_areas jsonb DEFAULT NULL,
+    p_program_id varchar[] DEFAULT NULL::varchar[],
+    p_unit_id varchar[] DEFAULT NULL::varchar[],
+    p_longitude double precision DEFAULT NULL,
+    p_latitude double precision DEFAULT NULL,
+    p_distance double precision DEFAULT NULL,
+    p_virtual_location boolean DEFAULT NULL
+
+) RETURNS TABLE (
+    insert_timestamp          timestamp with time zone,
+    id                        text,
+    author_id                 text,
+    created                   timestamp with time zone,
+    modified                  timestamp with time zone,
+    archived                  boolean,
+    deleted                   boolean,
+    type                      text,
+    name                      text,
+    description               text,
+    logo_url                  text,
+    url                       text,
+    external_id               varchar(100),
+    bypass_profile_moderation boolean,
+    parent_id                 text,
+    portal_id                 text,
+    contact_firstname         text,
+    contact_lastname          text,
+    contact_phone             text,
+    contact_email             text
+) AS $$
+BEGIN
+    RETURN QUERY SELECT
+        u.insert_timestamp,
+        u.id::text,
+        u.author_id::text,
+        u.created,
+        u.modified,
+        u.archived,
+        u.deleted,
+        u.type,
+        u.name,
+        u.description,
+        u.logo_url,
+        u.url,
+        u.external_id,
+        u.bypass_profile_moderation,
+        u.parent_id::text,
+        u.portal_id::text,
+        u.contact_firstname,
+        u.contact_lastname,
+        u.contact_phone,
+        u.contact_email
+FROM collab.units u
+         inner join collab.activity_to_units au on u.id = au.unit_id
+         inner join
+     (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location)) ids
+     on au.activity_id = ids.ret_id
+   group by
+        u.insert_timestamp,
+        u.id::text,
+        u.author_id::text,
+        u.created,
+        u.modified,
+        u.archived,
+        u.deleted,
+        u.type,
+        u.name,
+        u.description,
+        u.logo_url,
+        u.url,
+        u.external_id,
+        u.bypass_profile_moderation,
+        u.parent_id::text,
+        u.portal_id::text,
+        u.contact_firstname,
+        u.contact_lastname,
+        u.contact_phone,
+        u.contact_email     
+    ORDER BY CASE
+        WHEN p_sort_by = 'name' THEN u.id::text
+        WHEN p_sort_by = 'type' THEN u.type::text
+        WHEN p_sort_by = 'contact_lastname' THEN  u.contact_lastname::text
+        ELSE u.name
+    END
+    || ' ' || p_sort_dir
+    LIMIT p_limit
+    OFFSET p_offset;
+END;
+$$ LANGUAGE plpgsql;
+
+GRANT EXECUTE ON FUNCTION collab.getUnitPartnersFunc(
+    p_portal_id varchar,
+    p_sort_by varchar,
+    p_sort_dir varchar,
+    p_limit integer,
+    p_offset integer,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean
+) TO api_readonly;
+
+
+COMMENT ON FUNCTION collab.getUnitPartnersFunc(
+    p_portal_id varchar,
+    p_sort_by varchar,
+    p_sort_dir varchar,
+    p_limit integer,
+    p_offset integer,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean
+) IS E'@name GetUnitPartnersFunc';
+
 
 
 
