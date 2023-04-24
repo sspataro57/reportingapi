@@ -1204,9 +1204,167 @@ COMMENT ON FUNCTION collab.getUnitPartnersFunc(
 ) IS E'@name GetUnitPartnersFunc';
 
 
+------------------ GetActivityFundersCountFunc -------------------------
+
+drop function if exists collab.GetActivityFundersCountFunc;
+CREATE OR REPLACE FUNCTION collab.GetActivityFundersCountFunc(
+    p_portal_id varchar,
+    p_status text DEFAULT NULL,
+    p_start_time timestamp DEFAULT NULL,
+    p_end_time timestamp DEFAULT NULL,
+    p_focus_areas jsonb DEFAULT NULL,
+    p_program_id varchar[] DEFAULT NULL::varchar[],
+    p_unit_id varchar[] DEFAULT NULL::varchar[],
+    p_longitude double precision DEFAULT NULL,
+    p_latitude double precision DEFAULT NULL,
+    p_distance double precision DEFAULT NULL,
+    p_virtual_location boolean DEFAULT NULL
+)    RETURNS integer
+AS $$
+    # variable_conflict use_column
+DECLARE
+    ret_count integer;
+BEGIN
+    SELECT count(distinct fund.funder_id)
+    INTO ret_count
+    FROM collab.activity_funders fund
+             inner join (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location)) ids
+                        on fund.activity_id = ids.ret_id;
+     RETURN ret_count;
+END;
+$$ LANGUAGE plpgsql;
+
+
+GRANT EXECUTE ON FUNCTION collab.GetActivityFundersCountFunc(
+    p_portal_id varchar,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean
+) TO api_readonly;
+
+
+COMMENT ON FUNCTION collab.GetActivityFundersCountFunc(
+    p_portal_id varchar,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean
+) IS E'@name GetActivityFundersCountFunc';
+
+ 
 
 
 
+----------------  GetActivityFundersFunc   ---------------------
+
+drop function if exists collab.GetActivityFundersFunc;
+CREATE OR REPLACE FUNCTION collab.GetActivityFundersFunc(
+    p_portal_id varchar,
+    p_sort_by varchar DEFAULT 'name',
+    p_sort_dir varchar DEFAULT 'ASC',
+    p_limit integer DEFAULT 100,
+    p_offset integer DEFAULT 0,
+    p_status text DEFAULT NULL,
+    p_start_time timestamp DEFAULT NULL,
+    p_end_time timestamp DEFAULT NULL,
+    p_focus_areas jsonb DEFAULT NULL,
+    p_program_id varchar[] DEFAULT NULL::varchar[],
+    p_unit_id varchar[] DEFAULT NULL::varchar[],
+    p_longitude double precision DEFAULT NULL,
+    p_latitude double precision DEFAULT NULL,
+    p_distance double precision DEFAULT NULL,
+    p_virtual_location boolean DEFAULT NULL
+)
+RETURNS TABLE (
+    insert_timestamp TIMESTAMP WITH TIME ZONE,
+    modified TIMESTAMP WITH TIME ZONE,
+    activity_id TEXT,
+    funder_id TEXT,
+    name TEXT,
+    start_ts TIMESTAMP WITH TIME ZONE,
+    end_ts TIMESTAMP WITH TIME ZONE,
+    amount NUMERIC,
+    source TEXT,
+    deleted BOOLEAN
+) AS $$
+BEGIN
+    RETURN QUERY SELECT
+        fund.insert_timestamp,
+        fund.modified,
+        fund.activity_id::text,
+        fund.funder_id::text,
+        fund.name,
+        fund.start_ts,
+        fund.end_ts,
+        fund.amount,
+        fund.source,
+        fund.deleted
+    FROM collab.activity_funders fund
+             inner join (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location)) ids
+                        on fund.activity_id = ids.ret_id
+    ORDER BY
+        CASE WHEN p_sort_by = 'name' THEN fund.name END || ' ' || p_sort_dir,
+        CASE WHEN p_sort_by = 'insert_timestamp' THEN fund.insert_timestamp END || ' ' || p_sort_dir,
+        CASE WHEN p_sort_by = 'modified' THEN fund.modified END || ' ' || p_sort_dir,
+        CASE WHEN p_sort_by = 'activity_id' THEN fund.activity_id END || ' ' || p_sort_dir,
+        CASE WHEN p_sort_by = 'funder_id' THEN fund.funder_id END || ' ' || p_sort_dir
+    LIMIT p_limit
+    OFFSET p_offset;
+END;
+$$ LANGUAGE plpgsql;
+
+
+GRANT EXECUTE ON FUNCTION collab.GetActivityFundersFunc(
+    p_portal_id varchar,
+    p_sort_by varchar,
+    p_sort_dir varchar,
+    p_limit integer,
+    p_offset integer,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean
+) TO api_readonly;
+
+
+COMMENT ON FUNCTION collab.GetActivityFundersFunc(
+    p_portal_id varchar,
+    p_sort_by varchar,
+    p_sort_dir varchar,
+    p_limit integer,
+    p_offset integer,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean
+) IS E'@name GetActivityFundersFunc';
+
+ 
 
 
 
