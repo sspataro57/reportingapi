@@ -13,7 +13,8 @@ CREATE OR REPLACE FUNCTION collab.GetActivityIDsFunc(
     p_longitude double precision DEFAULT NULL,
     p_latitude double precision DEFAULT NULL,
     p_distance double precision DEFAULT NULL,
-    p_virtual_location boolean DEFAULT NULL
+    p_virtual_location boolean DEFAULT NULL,
+    p_type varchar DEFAULT NULL
 )
 RETURNS TABLE (ret_id uuid, distance double precision)
 AS $$
@@ -35,12 +36,13 @@ BEGIN
                            OR (p_virtual_location = false AND NOT EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.activities.id AND virtual = true) AND ST_DistanceSphere(ST_MakePoint(longitude, latitude), ST_MakePoint(p_longitude, p_latitude)) * 0.000621371 < p_distance)
                        )
                    )
-                   AND (p_virtual_location IS NULL OR (p_virtual_location = true AND EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.activities.id AND virtual = true)) OR (p_virtual_location = false AND NOT EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.activities.id AND virtual = true)));
+                   AND (p_virtual_location IS NULL OR (p_virtual_location = true AND EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.activities.id AND virtual = true)) OR (p_virtual_location = false AND NOT EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.activities.id AND virtual = true)))
+                   AND (p_type IS NULL OR lower(type) = p_type);
 END;
 $$ LANGUAGE plpgsql;
 
 
-comment on function collab.GetActivityIDsFunc(varchar, text, timestamp, timestamp, jsonb, character varying[],character varying[], double precision, double precision, double precision, boolean) is '@omit: "create,update,delete"';
+comment on function collab.GetActivityIDsFunc(varchar, text, timestamp, timestamp, jsonb, character varying[],character varying[], double precision, double precision, double precision, boolean,varchar) is '@omit: "create,update,delete"';
 
 -------------- collab.GetActivityCountFunc ----------------------------
 drop function if exists collab.GetActivityCountFunc;
@@ -56,7 +58,8 @@ CREATE OR REPLACE FUNCTION collab.GetActivityCountFunc(
     p_longitude double precision DEFAULT NULL,
     p_latitude double precision DEFAULT NULL,
     p_distance double precision DEFAULT NULL,
-    p_virtual_location boolean DEFAULT NULL
+    p_virtual_location boolean DEFAULT NULL,
+    p_type varchar DEFAULT NULL
 )
 RETURNS TABLE (portalid varchar, count bigint)
 AS $$
@@ -64,7 +67,7 @@ AS $$
 BEGIN
     RETURN QUERY SELECT portal_id::varchar, count(id)
                  FROM collab.activities
-                 WHERE id IN (SELECT ret_id FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location))
+                 WHERE id IN (SELECT ret_id FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location,p_type))
                  GROUP BY portal_id;
 END;
 $$ LANGUAGE plpgsql;
@@ -82,7 +85,8 @@ GRANT EXECUTE ON FUNCTION collab.GetActivityIDsFunc(
     p_longitude double precision ,
     p_latitude double precision ,
     p_distance double precision ,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) TO api_readonly;
 
 GRANT EXECUTE ON FUNCTION collab.GetActivityCountFunc(
@@ -96,7 +100,8 @@ GRANT EXECUTE ON FUNCTION collab.GetActivityCountFunc(
     p_longitude double precision ,
     p_latitude double precision ,
     p_distance double precision ,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) TO api_readonly;
 
 COMMENT ON FUNCTION collab.GetActivityCountFunc(
@@ -110,7 +115,8 @@ COMMENT ON FUNCTION collab.GetActivityCountFunc(
     p_longitude double precision ,
     p_latitude double precision ,
     p_distance double precision ,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) IS E'@name GetActivityCountFunc';
 
 COMMENT ON FUNCTION collab.GetActivityIDsFunc(
@@ -124,7 +130,8 @@ COMMENT ON FUNCTION collab.GetActivityIDsFunc(
     p_longitude double precision ,
     p_latitude double precision ,
     p_distance double precision ,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) IS E'@omit: "create,update,delete"';
 
 
@@ -146,7 +153,8 @@ CREATE OR REPLACE FUNCTION collab.GetActivitiesFunc(
     p_longitude double precision DEFAULT NULL,
     p_latitude double precision DEFAULT NULL,
     p_distance double precision DEFAULT NULL,
-    p_virtual_location boolean DEFAULT NULL
+    p_virtual_location boolean DEFAULT NULL,
+    p_type varchar DEFAULT NULL
 )
 RETURNS TABLE (
     insert_timestamp       timestamp with time zone,
@@ -229,7 +237,7 @@ BEGIN
     RETURN QUERY
     SELECT collab.activities.*,ids.distance
     FROM collab.activities inner join
-       (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location)) ids
+       (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location,p_type)) ids
                       on collab.activities.id=ids.ret_id
     ORDER BY CASE WHEN p_sort_dir = 'DESC' THEN $1 END DESC,
              CASE WHEN p_sort_dir = 'ASC' THEN $1 END ASC
@@ -255,7 +263,8 @@ GRANT EXECUTE ON FUNCTION collab.GetActivitiesFunc(
     p_longitude double precision ,
     p_latitude double precision ,
     p_distance double precision ,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) TO api_readonly;
 
 
@@ -274,7 +283,8 @@ COMMENT ON FUNCTION collab.GetActivitiesFunc(
     p_longitude double precision ,
     p_latitude double precision ,
     p_distance double precision ,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) IS E'@name GetActivitiesFunc';
 
 ------------------------  collab.getCommunityPartnersCountFunc  --------------------
@@ -291,7 +301,8 @@ CREATE OR REPLACE FUNCTION collab.getCommunityPartnersCountFunc(
     p_longitude double precision DEFAULT NULL,
     p_latitude double precision DEFAULT NULL,
     p_distance double precision DEFAULT NULL,
-    p_virtual_location boolean DEFAULT NULL
+    p_virtual_location boolean DEFAULT NULL,
+    p_type varchar DEFAULT NULL
 )
      RETURNS integer
 AS
@@ -307,7 +318,7 @@ BEGIN
                       (SELECT ret_id, distance
                        FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas,
                                                       p_program_id, p_unit_id, p_longitude, p_latitude, p_distance,
-                                                      p_virtual_location)) ids
+                                                      p_virtual_location,p_type)) ids
                       on p.activity_id = ids.ret_id
                           inner join collab.organizations org on p.community_id = org.id;
         RETURN ret_count;
@@ -327,7 +338,8 @@ GRANT EXECUTE ON FUNCTION collab.getCommunityPartnersCountFunc(
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) TO api_readonly;
 
 
@@ -342,7 +354,8 @@ COMMENT ON FUNCTION collab.getCommunityPartnersCountFunc(
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) IS E'@name GetCommunityPartnersCountFunc';
 
 
@@ -363,7 +376,8 @@ CREATE OR REPLACE FUNCTION collab.GetFacStaffCountFunc(
     p_longitude double precision DEFAULT NULL,
     p_latitude double precision DEFAULT NULL,
     p_distance double precision DEFAULT NULL,
-    p_virtual_location boolean DEFAULT NULL
+    p_virtual_location boolean DEFAULT NULL,
+    p_type varchar DEFAULT NULL
 )
 RETURNS integer
 AS $$
@@ -388,7 +402,8 @@ BEGIN
                 p_longitude,
                 p_latitude,
                 p_distance,
-                p_virtual_location
+                p_virtual_location,
+                p_type
             )
         ) ids ON ua.entity_id = ids.ret_id AND type <> 'proxy';
 
@@ -408,7 +423,8 @@ GRANT EXECUTE ON FUNCTION collab.GetFacStaffCountFunc(
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) TO api_readonly;
 
 
@@ -423,7 +439,8 @@ COMMENT ON FUNCTION collab.GetFacStaffCountFunc(
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) IS E'@name GetFacStaffCountFunc';
 
 drop function if exists collab.GetFacStaffFunc;
@@ -442,7 +459,8 @@ CREATE OR REPLACE FUNCTION collab.GetFacStaffFunc(
     p_longitude double precision DEFAULT NULL,
     p_latitude double precision DEFAULT NULL,
     p_distance double precision DEFAULT NULL,
-    p_virtual_location boolean DEFAULT NULL
+    p_virtual_location boolean DEFAULT NULL,
+    p_type varchar DEFAULT NULL
 )
 RETURNS TABLE (
     user_id text,
@@ -470,7 +488,8 @@ BEGIN
                                   p_longitude,
                                   p_latitude,
                                   p_distance,
-                                  p_virtual_location
+                                  p_virtual_location,
+                                  p_type
                               )
                           ) ids ON ua.entity_id = ids.ret_id AND type <> 'proxy'
                  group by u.id, u.firstname, u.lastname, em.email
@@ -501,7 +520,8 @@ GRANT EXECUTE ON FUNCTION collab.GetFacStaffFunc(
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) TO api_readonly;
 
 
@@ -520,7 +540,8 @@ COMMENT ON FUNCTION collab.GetFacStaffFunc(
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 )  IS E'@name GetFacStaffFunc';
 
 
@@ -542,7 +563,8 @@ CREATE OR REPLACE FUNCTION collab.getCommunityPartnersFunc(
     p_longitude double precision DEFAULT NULL,
     p_latitude double precision DEFAULT NULL,
     p_distance double precision DEFAULT NULL,
-    p_virtual_location boolean DEFAULT NULL
+    p_virtual_location boolean DEFAULT NULL,
+    p_type varchar DEFAULT NULL
 )
     RETURNS TABLE
             (
@@ -636,7 +658,7 @@ BEGIN
                       (SELECT ret_id, distance
                        FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas,
                                                       p_program_id, p_unit_id, p_longitude, p_latitude, p_distance,
-                                                      p_virtual_location)) ids
+                                                      p_virtual_location,p_type)) ids
                       on p.activity_id = ids.ret_id
                           inner join collab.organizations org on p.community_id = org.id
                 GROUP BY
@@ -704,7 +726,8 @@ GRANT EXECUTE ON FUNCTION collab.getCommunityPartnersFunc(
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) TO api_readonly;
 
 
@@ -723,7 +746,8 @@ COMMENT ON FUNCTION collab.getCommunityPartnersFunc(
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) IS E'@name GetCommunityPartnersFunc';
 
 
@@ -741,7 +765,8 @@ CREATE OR REPLACE FUNCTION collab.getInstitutionalPartnersCountFunc(
     p_longitude double precision DEFAULT NULL,
     p_latitude double precision DEFAULT NULL,
     p_distance double precision DEFAULT NULL,
-    p_virtual_location boolean DEFAULT NULL
+    p_virtual_location boolean DEFAULT NULL,
+    p_type varchar DEFAULT NULL
 )
      RETURNS integer
 AS
@@ -757,7 +782,7 @@ BEGIN
                       (SELECT ret_id, distance
                        FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas,
                                                       p_program_id, p_unit_id, p_longitude, p_latitude, p_distance,
-                                                      p_virtual_location)) ids
+                                                      p_virtual_location,p_type)) ids
                       on p.activity_id = ids.ret_id
                           inner join collab.organizations org on p.institution_id = org.id;
         RETURN ret_count;
@@ -777,7 +802,8 @@ GRANT EXECUTE ON FUNCTION collab.getInstitutionalPartnersCountFunc(
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) TO api_readonly;
 
 
@@ -792,7 +818,8 @@ COMMENT ON FUNCTION collab.getInstitutionalPartnersCountFunc(
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) IS E'@name GetInstitutionalPartnersCountFunc';
 
 
@@ -818,7 +845,8 @@ CREATE OR REPLACE FUNCTION collab.getInstitutionalPartnersFunc(
     p_longitude double precision DEFAULT NULL,
     p_latitude double precision DEFAULT NULL,
     p_distance double precision DEFAULT NULL,
-    p_virtual_location boolean DEFAULT NULL
+    p_virtual_location boolean DEFAULT NULL,
+    p_type varchar DEFAULT NULL
 )
     RETURNS TABLE
             (
@@ -912,7 +940,7 @@ BEGIN
                       (SELECT ret_id, distance
                        FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas,
                                                       p_program_id, p_unit_id, p_longitude, p_latitude, p_distance,
-                                                      p_virtual_location)) ids
+                                                      p_virtual_location,p_type)) ids
                       on p.activity_id = ids.ret_id
                           inner join collab.organizations org on p.institution_id = org.id
                  GROUP BY
@@ -980,7 +1008,8 @@ GRANT EXECUTE ON FUNCTION collab.getInstitutionalPartnersFunc(
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) TO api_readonly;
 
 
@@ -999,7 +1028,8 @@ COMMENT ON FUNCTION collab.getInstitutionalPartnersFunc(
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) IS E'@name GetInstitutionalPartnersFunc';
 
 
@@ -1016,7 +1046,8 @@ CREATE OR REPLACE FUNCTION collab.GetUnitPartnersCountFunc(
     p_longitude double precision DEFAULT NULL,
     p_latitude double precision DEFAULT NULL,
     p_distance double precision DEFAULT NULL,
-    p_virtual_location boolean DEFAULT NULL
+    p_virtual_location boolean DEFAULT NULL,
+    p_type varchar DEFAULT NULL
 )    RETURNS integer
 AS $$
     # variable_conflict use_column
@@ -1028,7 +1059,7 @@ BEGIN
 FROM collab.units u
          inner join collab.activity_to_units au on u.id = au.unit_id
          inner join
-     (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location)) ids
+     (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location,p_type)) ids
      on au.activity_id = ids.ret_id;
    RETURN ret_count;
 END;
@@ -1045,7 +1076,8 @@ GRANT EXECUTE ON FUNCTION collab.GetUnitPartnersCountFunc(
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) TO api_readonly;
 
 
@@ -1060,7 +1092,8 @@ COMMENT ON FUNCTION collab.GetUnitPartnersCountFunc(
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) IS E'@name GetUnitPartnersCountFunc';
 
 ----------------------- UNIT partners --------------------------------
@@ -1082,7 +1115,8 @@ CREATE OR REPLACE FUNCTION collab.GetUnitPartnersFunc(
     p_longitude double precision DEFAULT NULL,
     p_latitude double precision DEFAULT NULL,
     p_distance double precision DEFAULT NULL,
-    p_virtual_location boolean DEFAULT NULL
+    p_virtual_location boolean DEFAULT NULL,
+    p_type varchar DEFAULT NULL
 
 ) RETURNS TABLE (
     insert_timestamp          timestamp with time zone,
@@ -1131,7 +1165,7 @@ BEGIN
 FROM collab.units u
          inner join collab.activity_to_units au on u.id = au.unit_id
          inner join
-     (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location)) ids
+     (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location,p_type)) ids
      on au.activity_id = ids.ret_id
    group by
         u.insert_timestamp,
@@ -1181,7 +1215,8 @@ GRANT EXECUTE ON FUNCTION collab.getUnitPartnersFunc(
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) TO api_readonly;
 
 
@@ -1200,7 +1235,8 @@ COMMENT ON FUNCTION collab.getUnitPartnersFunc(
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) IS E'@name GetUnitPartnersFunc';
 
 
@@ -1218,7 +1254,8 @@ CREATE OR REPLACE FUNCTION collab.GetActivityFundersCountFunc(
     p_longitude double precision DEFAULT NULL,
     p_latitude double precision DEFAULT NULL,
     p_distance double precision DEFAULT NULL,
-    p_virtual_location boolean DEFAULT NULL
+    p_virtual_location boolean DEFAULT NULL,
+    p_type varchar DEFAULT NULL
 )    RETURNS integer
 AS $$
     # variable_conflict use_column
@@ -1228,7 +1265,7 @@ BEGIN
     SELECT count(distinct fund.funder_id)
     INTO ret_count
     FROM collab.activity_funders fund
-             inner join (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location)) ids
+             inner join (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location,p_type)) ids
                         on fund.activity_id = ids.ret_id;
      RETURN ret_count;
 END;
@@ -1246,12 +1283,117 @@ GRANT EXECUTE ON FUNCTION collab.GetActivityFundersCountFunc(
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) TO api_readonly;
 
-
-COMMENT ON FUNCTION collab.GetActivityFundersCountFunc(
+drop function if exists collab.GetUnitPartnersFunc;
+CREATE OR REPLACE FUNCTION collab.GetUnitPartnersFunc(
     p_portal_id varchar,
+    p_sort_by varchar DEFAULT 'name',
+    p_sort_dir varchar DEFAULT 'ASC',
+    p_limit integer DEFAULT 100,
+    p_offset integer DEFAULT 0,
+    p_status text DEFAULT NULL,
+    p_start_time timestamp DEFAULT NULL,
+    p_end_time timestamp DEFAULT NULL,
+    p_focus_areas jsonb DEFAULT NULL,
+    p_program_id varchar[] DEFAULT NULL::varchar[],
+    p_unit_id varchar[] DEFAULT NULL::varchar[],
+    p_longitude double precision DEFAULT NULL,
+    p_latitude double precision DEFAULT NULL,
+    p_distance double precision DEFAULT NULL,
+    p_virtual_location boolean DEFAULT NULL,
+    p_type varchar DEFAULT NULL
+
+) RETURNS TABLE (
+    insert_timestamp          timestamp with time zone,
+    id                        text,
+    author_id                 text,
+    created                   timestamp with time zone,
+    modified                  timestamp with time zone,
+    archived                  boolean,
+    deleted                   boolean,
+    type                      text,
+    name                      text,
+    description               text,
+    logo_url                  text,
+    url                       text,
+    external_id               varchar(100),
+    bypass_profile_moderation boolean,
+    parent_id                 text,
+    portal_id                 text,
+    contact_firstname         text,
+    contact_lastname          text,
+    contact_phone             text,
+    contact_email             text
+) AS $$
+BEGIN
+    RETURN QUERY SELECT
+        u.insert_timestamp,
+        u.id::text,
+        u.author_id::text,
+        u.created,
+        u.modified,
+        u.archived,
+        u.deleted,
+        u.type,
+        u.name,
+        u.description,
+        u.logo_url,
+        u.url,
+        u.external_id,
+        u.bypass_profile_moderation,
+        u.parent_id::text,
+        u.portal_id::text,
+        u.contact_firstname,
+        u.contact_lastname,
+        u.contact_phone,
+        u.contact_email
+FROM collab.units u
+         inner join collab.activity_to_units au on u.id = au.unit_id
+         inner join
+     (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location,p_type)) ids
+     on au.activity_id = ids.ret_id
+   group by
+        u.insert_timestamp,
+        u.id::text,
+        u.author_id::text,
+        u.created,
+        u.modified,
+        u.archived,
+        u.deleted,
+        u.type,
+        u.name,
+        u.description,
+        u.logo_url,
+        u.url,
+        u.external_id,
+        u.bypass_profile_moderation,
+        u.parent_id::text,
+        u.portal_id::text,
+        u.contact_firstname,
+        u.contact_lastname,
+        u.contact_phone,
+        u.contact_email     
+    ORDER BY CASE
+        WHEN p_sort_by = 'name' THEN u.id::text
+        WHEN p_sort_by = 'type' THEN u.type::text
+        WHEN p_sort_by = 'contact_lastname' THEN  u.contact_lastname::text
+        ELSE u.name
+    END
+    || ' ' || p_sort_dir
+    LIMIT p_limit
+    OFFSET p_offset;
+END;
+$$ LANGUAGE plpgsql;
+
+GRANT EXECUTE ON FUNCTION collab.getUnitPartnersFunc(
+    p_portal_id varchar,
+    p_sort_by varchar,
+    p_sort_dir varchar,
+    p_limit integer,
+    p_offset integer,
     p_status text,
     p_start_time timestamp,
     p_end_time timestamp,
@@ -1261,7 +1403,39 @@ COMMENT ON FUNCTION collab.GetActivityFundersCountFunc(
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
+) TO api_readonly;
+
+
+COMMENT ON FUNCTION collab.getUnitPartnersFunc(
+    p_portal_id varchar,
+    p_sort_by varchar,
+    p_sort_dir varchar,
+    p_limit integer,
+    p_offset integer,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean,
+    p_type varchar
+) IS E'@name GetUnitPartnersFunc';
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean,
+    p_type varchar
 ) IS E'@name GetActivityFundersCountFunc';
 
  
@@ -1286,7 +1460,8 @@ CREATE OR REPLACE FUNCTION collab.GetActivityFundersFunc(
     p_longitude double precision DEFAULT NULL,
     p_latitude double precision DEFAULT NULL,
     p_distance double precision DEFAULT NULL,
-    p_virtual_location boolean DEFAULT NULL
+    p_virtual_location boolean DEFAULT NULL,
+    p_type varchar DEFAULT NULL
 )
 RETURNS TABLE (
     insert_timestamp TIMESTAMP WITH TIME ZONE,
@@ -1313,7 +1488,7 @@ BEGIN
         fund.source,
         fund.deleted
     FROM collab.activity_funders fund
-             inner join (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location)) ids
+             inner join (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location,p_type)) ids
                         on fund.activity_id = ids.ret_id
     ORDER BY
         CASE WHEN p_sort_by = 'name' THEN fund.name END || ' ' || p_sort_dir,
@@ -1342,7 +1517,8 @@ GRANT EXECUTE ON FUNCTION collab.GetActivityFundersFunc(
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) TO api_readonly;
 
 
@@ -1361,11 +1537,146 @@ COMMENT ON FUNCTION collab.GetActivityFundersFunc(
     p_longitude double precision,
     p_latitude double precision,
     p_distance double precision,
-    p_virtual_location boolean
+    p_virtual_location boolean,
+    p_type varchar
 ) IS E'@name GetActivityFundersFunc';
-
  
 
+
+ ----------------------- unit partners top count
+ 
+drop function if exists collab.GetTopUnitPartnersFunc;
+CREATE OR REPLACE FUNCTION collab.GetTopUnitPartnersFunc(
+    p_portal_id varchar,
+    p_sort_by varchar DEFAULT 'name',
+    p_sort_dir varchar DEFAULT 'ASC',
+    p_limit integer DEFAULT 100,
+    p_offset integer DEFAULT 0,
+    p_status text DEFAULT NULL,
+    p_start_time timestamp DEFAULT NULL,
+    p_end_time timestamp DEFAULT NULL,
+    p_focus_areas jsonb DEFAULT NULL,
+    p_program_id varchar[] DEFAULT NULL::varchar[],
+    p_unit_id varchar[] DEFAULT NULL::varchar[],
+    p_longitude double precision DEFAULT NULL,
+    p_latitude double precision DEFAULT NULL,
+    p_distance double precision DEFAULT NULL,
+    p_virtual_location boolean DEFAULT NULL,
+    p_type varchar DEFAULT NULL
+
+) RETURNS TABLE (
+    id                        text,
+    author_id                 text,
+    archived                  boolean,
+    deleted                   boolean,
+    type                      text,
+    name                      text,
+    description               text,
+    logo_url                  text,
+    url                       text,
+    external_id               varchar(100),
+    bypass_profile_moderation boolean,
+    parent_id                 text,
+    portal_id                 text,
+    contact_firstname         text,
+    contact_lastname          text,
+    contact_phone             text,
+    contact_email             text,
+    countActivities           bigint          
+) AS $$
+BEGIN
+    RETURN QUERY SELECT
+        u.id::text,
+        u.author_id::text,
+        u.archived,
+        u.deleted,
+        u.type,
+        u.name,
+        u.description,
+        u.logo_url,
+        u.url,
+        u.external_id,
+        u.bypass_profile_moderation,
+        u.parent_id::text,
+        u.portal_id::text,
+        u.contact_firstname,
+        u.contact_lastname,
+        u.contact_phone,
+        u.contact_email,
+        count(au.activity_id) as countActivities
+FROM collab.v_units u
+         inner join collab.v_activity_to_units au on u.id = au.unit_id
+         inner join
+     (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location,p_type)) ids
+     on au.activity_id = ids.ret_id
+   group by
+        u.id::text,
+        u.author_id::text,
+        u.archived,
+        u.deleted,
+        u.type,
+        u.name,
+        u.description,
+        u.logo_url,
+        u.url,
+        u.external_id,
+        u.bypass_profile_moderation,
+        u.parent_id::text,
+        u.portal_id::text,
+        u.contact_firstname,
+        u.contact_lastname,
+        u.contact_phone,
+        u.contact_email     
+    ORDER BY count(au.activity_id) desc,CASE
+        WHEN p_sort_by = 'name' THEN u.id::text
+        WHEN p_sort_by = 'type' THEN u.type::text
+        WHEN p_sort_by = 'contact_lastname' THEN  u.contact_lastname::text
+        ELSE u.name
+    END
+    || ' ' || p_sort_dir
+    LIMIT p_limit
+    OFFSET p_offset;
+END;
+$$ LANGUAGE plpgsql;
+
+GRANT EXECUTE ON FUNCTION collab.getTopUnitPartnersFunc(
+    p_portal_id varchar,
+    p_sort_by varchar,
+    p_sort_dir varchar,
+    p_limit integer,
+    p_offset integer,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean,
+    p_type varchar
+) TO api_readonly;
+
+
+COMMENT ON FUNCTION collab.getTopUnitPartnersFunc(
+    p_portal_id varchar,
+    p_sort_by varchar,
+    p_sort_dir varchar,
+    p_limit integer,
+    p_offset integer,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean,
+    p_type varchar
+) IS E'@name GetTopUnitPartnersFunc';
 
 
 
