@@ -2446,3 +2446,203 @@ COMMENT ON FUNCTION collab.getFacultyPartnersTotalFunc(
     p_type varchar
 ) IS E'@name getFacultyPartnersTotalFunc';
 
+----------------------- Activity Addresses
+
+drop function if exists collab.getActivityAddressFunc;
+CREATE OR REPLACE FUNCTION collab.getActivityAddressFunc(
+    p_activity_id uuid
+
+) RETURNS TABLE (
+    address text[]
+) AS $$
+#variable_conflict use_column
+BEGIN
+    RETURN QUERY SELECT ARRAY(
+                    SELECT ROW(country, street, street2, postal, county, city, state, virtual)::text
+                    FROM collab.v_activity_sites
+                    WHERE activity_id = p_activity_id
+                ) AS address;
+END;
+$$ LANGUAGE plpgsql;
+
+GRANT EXECUTE ON FUNCTION collab.getActivityAddressFunc(
+    p_activity_id uuid
+) TO api_readonly;
+
+
+COMMENT ON FUNCTION collab.getActivityAddressFunc(
+    p_activity_id uuid
+) IS E'@name getActivityAddressFunc';
+
+----------------------- Activity Units
+
+drop function if exists collab.getActivityUnitsFunc;
+CREATE OR REPLACE FUNCTION collab.getActivityUnitsFunc(
+    p_activity_id uuid
+
+) RETURNS TABLE (
+    units text
+) AS $$
+#variable_conflict use_column
+BEGIN
+    RETURN QUERY SELECT STRING_AGG(name, ',')::text AS names
+                 FROM (SELECT u.name
+                    FROM collab.v_units u
+                    INNER JOIN collab.v_activity_to_units au ON u.id = au.unit_id
+                    WHERE au.activity_id = p_activity_id
+                    ORDER BY u.name) AS tbl;
+END;
+$$ LANGUAGE plpgsql;
+
+GRANT EXECUTE ON FUNCTION collab.getActivityUnitsFunc(
+    p_activity_id uuid
+) TO api_readonly;
+
+----------------------- Activity Programs
+
+drop function if exists collab.getActivityProgramsFunc;
+CREATE OR REPLACE FUNCTION collab.getActivityProgramsFunc(
+    p_activity_id uuid
+
+) RETURNS TABLE (
+    programs text
+) AS $$
+#variable_conflict use_column
+BEGIN
+    RETURN QUERY SELECT STRING_AGG(name, ',')::text AS names
+                 FROM (SELECT p.name
+                        FROM collab.v_activity_to_programs AS ap
+                        INNER JOIN collab.v_programs_initiatives AS p ON p.id = ap.program_id
+                        WHERE ap.activity_id = p_activity_id
+                        ORDER BY p.name) AS tbl;
+END;
+$$ LANGUAGE plpgsql;
+
+GRANT EXECUTE ON FUNCTION collab.getActivityProgramsFunc(
+    p_activity_id uuid
+) TO api_readonly;
+
+
+COMMENT ON FUNCTION collab.getActivityProgramsFunc(
+    p_activity_id uuid
+) IS E'@name getActivityProgramsFunc';
+
+----------------------- Activity Faculty/Staff
+
+drop function if exists collab.getActivityFacultyStaffFunc;
+CREATE OR REPLACE FUNCTION collab.getActivityFacultyStaffFunc(
+    p_activity_id uuid
+
+) RETURNS TABLE (
+    faculty text
+) AS $$
+#variable_conflict use_column
+BEGIN
+    RETURN QUERY SELECT STRING_AGG(name, ',')::text AS names
+                 FROM (SELECT DISTINCT ON (u.id) (u.firstname || ' ' || u.lastname) AS name
+                        FROM users.users u
+                        INNER JOIN users.user_emails em ON u.id = em.user_id
+                        INNER JOIN users.user_associations ua ON u.id = ua.user_id
+                        WHERE ua.entity_id = p_activity_id
+                        ORDER BY u.id, u.firstname, u.lastname) AS tbl;
+END;
+$$ LANGUAGE plpgsql;
+
+GRANT EXECUTE ON FUNCTION collab.getActivityFacultyStaffFunc(
+    p_activity_id uuid
+) TO api_readonly;
+
+
+COMMENT ON FUNCTION collab.getActivityFacultyStaffFunc(
+    p_activity_id uuid
+) IS E'@name getActivityFacultyStaffFunc';
+
+----------------------- Activity Community Organizations
+
+drop function if exists collab.getActivityCommunityOrgFunc;
+CREATE OR REPLACE FUNCTION collab.getActivityCommunityOrgFunc(
+    p_activity_id uuid
+
+) RETURNS TABLE (
+    community text
+) AS $$
+#variable_conflict use_column
+BEGIN
+    RETURN QUERY SELECT STRING_AGG(name, ',')::text AS names
+                 FROM (SELECT o.name
+                        FROM collab.v_activity_to_community_partners AS cp
+                        INNER JOIN collab.v_organizations AS o ON o.id = cp.community_id
+                        WHERE cp.activity_id = p_activity_id
+                        ORDER BY o.name) AS tbl;
+END;
+$$ LANGUAGE plpgsql;
+
+GRANT EXECUTE ON FUNCTION collab.getActivityCommunityOrgFunc(
+    p_activity_id uuid
+) TO api_readonly;
+
+
+COMMENT ON FUNCTION collab.getActivityCommunityOrgFunc(
+    p_activity_id uuid
+) IS E'@name getActivityCommunityOrgFunc';
+
+----------------------- Activity Community Organization Contact
+
+drop function if exists collab.getActivityCommunityOrgContactFunc;
+CREATE OR REPLACE FUNCTION collab.getActivityCommunityOrgContactFunc(
+    p_activity_id uuid
+
+) RETURNS TABLE (
+    community_contact text[]
+) AS $$
+#variable_conflict use_column
+BEGIN
+    RETURN QUERY SELECT ARRAY(
+                    SELECT ROW((cp.contact_firstname || ' ' || cp.contact_lastname), cp.contact_email)::text
+                        FROM collab.v_activity_to_community_partners AS cp
+                        INNER JOIN collab.v_organizations AS o ON o.id = cp.community_id
+                        WHERE cp.activity_id = p_activity_id
+                        ORDER BY o.name
+                ) AS community_contact;
+END;
+$$ LANGUAGE plpgsql;
+
+GRANT EXECUTE ON FUNCTION collab.getActivityCommunityOrgContactFunc(
+    p_activity_id uuid
+) TO api_readonly;
+
+
+COMMENT ON FUNCTION collab.getActivityCommunityOrgContactFunc(
+    p_activity_id uuid
+) IS E'@name getActivityCommunityOrgContactFunc';
+
+----------------------- Activity Community Organization Roles
+
+drop function if exists collab.getActivityCommunityOrgRolesFunc;
+CREATE OR REPLACE FUNCTION collab.getActivityCommunityOrgRolesFunc(
+    p_activity_id uuid
+
+) RETURNS TABLE (
+    community_roles text[]
+) AS $$
+#variable_conflict use_column
+BEGIN
+    RETURN QUERY SELECT ARRAY(
+                    SELECT ROW(cp.community_partner_roles)::text
+                        FROM collab.v_activity_to_community_partners AS cp
+                        INNER JOIN collab.v_organizations AS o ON o.id = cp.community_id
+                        WHERE cp.activity_id = p_activity_id
+                        ORDER BY o.name
+                ) AS community_contact;
+END;
+$$ LANGUAGE plpgsql;
+
+GRANT EXECUTE ON FUNCTION collab.getActivityCommunityOrgRolesFunc(
+    p_activity_id uuid
+) TO api_readonly;
+
+
+COMMENT ON FUNCTION collab.getActivityCommunityOrgRolesFunc(
+    p_activity_id uuid
+) IS E'@name getActivityCommunityOrgRolesFunc';
+
