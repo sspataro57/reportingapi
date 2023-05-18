@@ -20,8 +20,8 @@ RETURNS TABLE (ret_id uuid, distance double precision)
 AS $$
 #variable_conflict use_column
 BEGIN
-    RETURN QUERY SELECT collab.activities.id, ST_DistanceSphere(ST_MakePoint(longitude, latitude), ST_MakePoint(p_longitude, p_latitude)) * 0.000621371 as distance
-                 FROM collab.activities
+    RETURN QUERY SELECT collab.v_activities.id, ST_DistanceSphere(ST_MakePoint(longitude, latitude), ST_MakePoint(p_longitude, p_latitude)) * 0.000621371 as distance
+                 FROM collab.v_activities
                  WHERE portal_id = p_portal_id::uuid
                    AND (p_status IS NULL OR status = p_status)
                    AND (p_start_time IS NULL OR start_time > p_start_time - interval '1 second')
@@ -32,11 +32,11 @@ BEGIN
                    AND (
                        p_longitude IS NULL AND p_latitude IS NULL
                        OR (
-                           (p_virtual_location = true AND (NOT EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.activities.id) OR EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.activities.id AND virtual = true)))
-                           OR (p_virtual_location = false AND NOT EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.activities.id AND virtual = true) AND ST_DistanceSphere(ST_MakePoint(longitude, latitude), ST_MakePoint(p_longitude, p_latitude)) * 0.000621371 < p_distance)
+                           (p_virtual_location = true AND (NOT EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.v_activities.id) OR EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.v_activities.id AND virtual = true)))
+                           OR (p_virtual_location = false AND NOT EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.v_activities.id AND virtual = true) AND ST_DistanceSphere(ST_MakePoint(longitude, latitude), ST_MakePoint(p_longitude, p_latitude)) * 0.000621371 < p_distance)
                        )
                    )
-                   AND (p_virtual_location IS NULL OR (p_virtual_location = true AND EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.activities.id AND virtual = true)) OR (p_virtual_location = false AND NOT EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.activities.id AND virtual = true)))
+                   AND (p_virtual_location IS NULL OR (p_virtual_location = true AND EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.v_activities.id AND virtual = true)) OR (p_virtual_location = false AND NOT EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.v_activities.id AND virtual = true)))
                    AND (p_type IS NULL OR lower(type) = p_type);
 END;
 $$ LANGUAGE plpgsql;
@@ -66,7 +66,7 @@ AS $$
 #variable_conflict use_column
 BEGIN
     RETURN QUERY SELECT portal_id::varchar, count(id)
-                 FROM collab.activities
+                 FROM collab.v_activities
                  WHERE id IN (SELECT ret_id FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location,p_type))
                  GROUP BY portal_id;
 END;
@@ -235,12 +235,15 @@ RETURNS TABLE (
 #variable_conflict use_column
 BEGIN
     RETURN QUERY
-    SELECT collab.activities.*,ids.distance
-    FROM collab.activities inner join
+    SELECT collab.v_activities.*,ids.distance
+    FROM collab.v_activities inner join
        (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location,p_type)) ids
-                      on collab.activities.id=ids.ret_id
-    ORDER BY CASE WHEN p_sort_dir = 'DESC' THEN $1 END DESC,
-             CASE WHEN p_sort_dir = 'ASC' THEN $1 END ASC
+                      on collab.v_activities.id=ids.ret_id
+    ORDER BY
+        CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (collab.v_activities.name) END ASC,
+		CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN (collab.v_activities.name) END DESC,
+		CASE WHEN (p_sort_by = 'created' OR p_sort_by IS NULL) AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (collab.v_activities.created) END ASC,
+		CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN (collab.v_activities.created) END DESC
     LIMIT p_limit
     OFFSET p_offset;
 END;
@@ -384,28 +387,32 @@ AS $$
 DECLARE
     ret_count integer;
 BEGIN
-    SELECT count(distinct u.id)
+    SELECT count(distinct id)
     INTO ret_count
-    FROM users.users u
-        INNER JOIN users.user_emails em ON u.id = em.user_id
-        INNER JOIN users.user_associations ua ON u.id = ua.user_id
-        INNER JOIN (
-            SELECT ret_id, distance
-            FROM collab.GetActivityIDsFunc(
-                p_portal_id,
-                p_status,
-                p_start_time,
-                p_end_time,
-                p_focus_areas,
-                p_program_id,
-                p_unit_id,
-                p_longitude,
-                p_latitude,
-                p_distance,
-                p_virtual_location,
-                p_type
-            )
-        ) ids ON ua.entity_id = ids.ret_id AND type <> 'proxy';
+    FROM (SELECT u.id, u.firstname, u.lastname, em.email, u.insert_timestamp,
+                    ROW_NUMBER() OVER (PARTITION BY u.id ORDER BY u.insert_timestamp DESC) as row_num
+            FROM users.users u
+            INNER JOIN users.user_emails em ON u.id = em.user_id
+            INNER JOIN users.user_associations ua ON u.id = ua.user_id
+                INNER JOIN (
+                SELECT ret_id, distance
+                        FROM collab.GetActivityIDsFunc(
+                            p_portal_id,
+                            p_status,
+                            p_start_time,
+                            p_end_time,
+                            p_focus_areas,
+                            p_program_id,
+                            p_unit_id,
+                            p_longitude,
+                            p_latitude,
+                            p_distance,
+                            p_virtual_location,
+                            p_type
+                        )
+                ) ids ON ua.entity_id = ids.ret_id AND ua.type <> 'proxy'
+            ) subquery
+            WHERE subquery.row_num = 1;
 
     RETURN ret_count;
 END;
@@ -471,12 +478,15 @@ RETURNS TABLE (
 AS $$
 #variable_conflict use_column
 BEGIN
-    RETURN QUERY SELECT u.id::text, u.firstname, u.lastname, em.email
-                 FROM users.users u
-                          INNER JOIN users.user_emails em ON u.id = em.user_id
-                          INNER JOIN users.user_associations ua ON u.id = ua.user_id
-                          INNER JOIN (
-                              SELECT ret_id, distance
+    RETURN QUERY SELECT id::text, firstname, lastname, email
+                    FROM (
+                    SELECT u.id, u.firstname, u.lastname, em.email, u.insert_timestamp,
+                            ROW_NUMBER() OVER (PARTITION BY u.id ORDER BY u.insert_timestamp DESC) as row_num
+                    FROM users.users u
+                    INNER JOIN users.user_emails em ON u.id = em.user_id
+                    INNER JOIN users.user_associations ua ON u.id = ua.user_id
+                        INNER JOIN (
+                        SELECT ret_id, distance
                               FROM collab.GetActivityIDsFunc(
                                   p_portal_id,
                                   p_status,
@@ -491,16 +501,19 @@ BEGIN
                                   p_virtual_location,
                                   p_type
                               )
-                          ) ids ON ua.entity_id = ids.ret_id AND type <> 'proxy'
-                 group by u.id, u.firstname, u.lastname, em.email
-                 ORDER BY
-                     CASE WHEN p_sort_by = 'firstname' AND upper(p_sort_dir)  = 'ASC' THEN (u.firstname,u.lastname) END ASC,
-                     CASE WHEN p_sort_by = 'firstname' AND upper(p_sort_dir) = 'DESC' THEN (u.firstname,u.lastname) END DESC,
-                     CASE WHEN p_sort_by = 'lastname' AND upper(p_sort_dir) = 'ASC' THEN (u.lastname,u.firstname) END ASC,
-                     CASE WHEN p_sort_by = 'lastname' AND upper(p_sort_dir) = 'DESC' THEN (u.lastname,u.firstname) END DESC,
-                     u.id ASC
-                 LIMIT p_limit
-                 OFFSET p_offset;
+                        ) ids ON ua.entity_id = ids.ret_id AND ua.type <> 'proxy'
+                    ) subquery
+                    WHERE subquery.row_num = 1 
+                    ORDER BY
+                        CASE WHEN p_sort_by = 'firstname' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (firstname,lastname) END ASC,
+                        CASE WHEN p_sort_by = 'firstname' AND upper(p_sort_dir) = 'DESC' THEN (firstname,lastname) END DESC,
+                        CASE WHEN p_sort_by = 'lastname' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (lastname,firstname) END ASC,
+                        CASE WHEN p_sort_by = 'lastname' AND upper(p_sort_dir) = 'DESC' THEN (lastname,firstname) END DESC,
+                        CASE WHEN p_sort_by = 'email' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (email,firstname,lastname) END ASC,
+                        CASE WHEN p_sort_by = 'email' AND upper(p_sort_dir) = 'DESC' THEN (email,firstname,lastname) END DESC,
+                        CASE WHEN p_sort_by IS NULL THEN (firstname,lastname) END ASC                  
+                    LIMIT p_limit
+                    OFFSET p_offset;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -613,99 +626,64 @@ AS
 $$
     # variable_conflict use_column
 BEGIN
-    RETURN QUERY SELECT org.insert_timestamp,
-                        org.id::text,
-                        org.type,
-                        org.author_id::text,
-                        org.created,
-                        org.modified,
-                        org.archived,
-                        org.deleted,
-                        org.slug,
-                        org.vanity,
-                        org.name,
-                        org.description,
-                        org.latitude,
-                        org.longitude,
-                        org.logo_id,
-                        org.logo_url,
-                        org.url,
-                        org.external_id,
-                        org.portal,
-                        org.welcome_message,
-                        org.office_name,
-                        org.allow_offline,
-                        org.mission_statement,
-                        org.email,
-                        org.phone,
-                        org.fax,
-                        org.disable_email_notifications,
-                        org.registrar_url,
-                        org.course_catalog_url,
-                        org.street,
-                        org.street2,
-                        org.city,
-                        org.state,
-                        org.county,
-                        org.zipcode,
-                        org.zipcode_addon,
-                        org.country,
-                        org.modified_by::text,
-                        org.status,
-                        org.parent_id::text
-                 from collab.v_activity_to_community_partners p
-                          inner join
-                      (SELECT ret_id, distance
-                       FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas,
-                                                      p_program_id, p_unit_id, p_longitude, p_latitude, p_distance,
-                                                      p_virtual_location,p_type)) ids
-                      on p.activity_id = ids.ret_id
-                          inner join collab.organizations org on p.community_id = org.id
-                GROUP BY
-                        org.insert_timestamp,
-                        org.id,
-                        org.type,
-                        org.author_id,
-                        org.created,
-                        org.modified,
-                        org.archived,
-                        org.deleted,
-                        org.slug,
-                        org.vanity,
-                        org.name,
-                        org.description,
-                        org.latitude,
-                        org.longitude,
-                        org.logo_id,
-                        org.logo_url,
-                        org.url,
-                        org.external_id,
-                        org.portal,
-                        org.welcome_message,
-                        org.office_name,
-                        org.allow_offline,
-                        org.mission_statement,
-                        org.email,
-                        org.phone,
-                        org.fax,
-                        org.disable_email_notifications,
-                        org.registrar_url,
-                        org.course_catalog_url,
-                        org.street,
-                        org.street2,
-                        org.city,
-                        org.state,
-                        org.county,
-                        org.zipcode,
-                        org.zipcode_addon,
-                        org.country,
-                        org.modified_by,
-                        org.status,
-                        org.parent_id                          
-                 ORDER BY CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'ASC' THEN org.name END ASC,
-                          CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN org.name END DESC,
-                          org.id ASC
-                 LIMIT p_limit OFFSET p_offset;
+    RETURN QUERY SELECT *
+                    FROM (SELECT DISTINCT ON (org.id)
+                            org.insert_timestamp,
+                            org.id::text,
+                            org.type,
+                            org.author_id::text,
+                            org.created,
+                            org.modified,
+                            org.archived,
+                            org.deleted,
+                            org.slug,
+                            org.vanity,
+                            org.name,
+                            org.description,
+                            org.latitude,
+                            org.longitude,
+                            org.logo_id,
+                            org.logo_url,
+                            org.url,
+                            org.external_id,
+                            org.portal,
+                            org.welcome_message,
+                            org.office_name,
+                            org.allow_offline,
+                            org.mission_statement,
+                            org.email,
+                            org.phone,
+                            org.fax,
+                            org.disable_email_notifications,
+                            org.registrar_url,
+                            org.course_catalog_url,
+                            org.street,
+                            org.street2,
+                            org.city,
+                            org.state,
+                            org.county,
+                            org.zipcode,
+                            org.zipcode_addon,
+                            org.country,
+                            org.modified_by::text,
+                            org.status,
+                            org.parent_id::text
+                    from collab.v_activity_to_community_partners p
+                            inner join
+                        (SELECT ret_id, distance
+                        FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas,
+                                                        p_program_id, p_unit_id, p_longitude, p_latitude, p_distance,
+                                                        p_virtual_location,p_type)) ids
+                        on p.activity_id = ids.ret_id
+                            inner join collab.organizations org on p.community_id = org.id) AS tbl
+                ORDER BY
+                    CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (tbl.name) END ASC,
+                    CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN (tbl.name) END DESC,
+                    CASE WHEN (p_sort_by = 'created' OR p_sort_by IS NULL) AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (tbl.created) END ASC,
+                    CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN (tbl.created) END DESC,  
+                    CASE WHEN p_sort_by IS NULL THEN tbl.created END ASC                     
+                LIMIT p_limit
+                OFFSET p_offset;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -895,99 +873,64 @@ AS
 $$
     # variable_conflict use_column
 BEGIN
-    RETURN QUERY SELECT org.insert_timestamp,
-                        org.id::text,
-                        org.type,
-                        org.author_id::text,
-                        org.created,
-                        org.modified,
-                        org.archived,
-                        org.deleted,
-                        org.slug,
-                        org.vanity,
-                        org.name,
-                        org.description,
-                        org.latitude,
-                        org.longitude,
-                        org.logo_id,
-                        org.logo_url,
-                        org.url,
-                        org.external_id,
-                        org.portal,
-                        org.welcome_message,
-                        org.office_name,
-                        org.allow_offline,
-                        org.mission_statement,
-                        org.email,
-                        org.phone,
-                        org.fax,
-                        org.disable_email_notifications,
-                        org.registrar_url,
-                        org.course_catalog_url,
-                        org.street,
-                        org.street2,
-                        org.city,
-                        org.state,
-                        org.county,
-                        org.zipcode,
-                        org.zipcode_addon,
-                        org.country,
-                        org.modified_by::text,
-                        org.status,
-                        org.parent_id::text
-                 from collab.activity_to_institutional_partners p
-                          inner join
-                      (SELECT ret_id, distance
-                       FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas,
-                                                      p_program_id, p_unit_id, p_longitude, p_latitude, p_distance,
-                                                      p_virtual_location,p_type)) ids
-                      on p.activity_id = ids.ret_id
-                          inner join collab.organizations org on p.institution_id = org.id
-                 GROUP BY
-                        org.insert_timestamp,
-                        org.id,
-                        org.type,
-                        org.author_id,
-                        org.created,
-                        org.modified,
-                        org.archived,
-                        org.deleted,
-                        org.slug,
-                        org.vanity,
-                        org.name,
-                        org.description,
-                        org.latitude,
-                        org.longitude,
-                        org.logo_id,
-                        org.logo_url,
-                        org.url,
-                        org.external_id,
-                        org.portal,
-                        org.welcome_message,
-                        org.office_name,
-                        org.allow_offline,
-                        org.mission_statement,
-                        org.email,
-                        org.phone,
-                        org.fax,
-                        org.disable_email_notifications,
-                        org.registrar_url,
-                        org.course_catalog_url,
-                        org.street,
-                        org.street2,
-                        org.city,
-                        org.state,
-                        org.county,
-                        org.zipcode,
-                        org.zipcode_addon,
-                        org.country,
-                        org.modified_by,
-                        org.status,
-                        org.parent_id
-                 ORDER BY CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'ASC' THEN org.name END ASC,
-                          CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN org.name END DESC,
-                          org.id ASC
-                 LIMIT p_limit OFFSET p_offset;
+    RETURN QUERY SELECT *
+                    FROM (SELECT DISTINCT ON (org.id)
+                            org.insert_timestamp,
+                            org.id::text,
+                            org.type,
+                            org.author_id::text,
+                            org.created,
+                            org.modified,
+                            org.archived,
+                            org.deleted,
+                            org.slug,
+                            org.vanity,
+                            org.name,
+                            org.description,
+                            org.latitude,
+                            org.longitude,
+                            org.logo_id,
+                            org.logo_url,
+                            org.url,
+                            org.external_id,
+                            org.portal,
+                            org.welcome_message,
+                            org.office_name,
+                            org.allow_offline,
+                            org.mission_statement,
+                            org.email,
+                            org.phone,
+                            org.fax,
+                            org.disable_email_notifications,
+                            org.registrar_url,
+                            org.course_catalog_url,
+                            org.street,
+                            org.street2,
+                            org.city,
+                            org.state,
+                            org.county,
+                            org.zipcode,
+                            org.zipcode_addon,
+                            org.country,
+                            org.modified_by::text,
+                            org.status,
+                            org.parent_id::text
+                    from collab.activity_to_institutional_partners p
+                            inner join
+                        (SELECT ret_id, distance
+                        FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas,
+                                                        p_program_id, p_unit_id, p_longitude, p_latitude, p_distance,
+                                                        p_virtual_location,p_type)) ids
+                        on p.activity_id = ids.ret_id
+                            inner join collab.organizations org on p.institution_id = org.id) AS tbl
+                ORDER BY
+                    CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (tbl.name) END ASC,
+                    CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN (tbl.name) END DESC,
+                    CASE WHEN (p_sort_by = 'created' OR p_sort_by IS NULL) AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (tbl.created) END ASC,
+                    CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN (tbl.created) END DESC,  
+                    CASE WHEN p_sort_by IS NULL THEN tbl.created END ASC                  
+                LIMIT p_limit
+                OFFSET p_offset;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -1141,62 +1084,62 @@ CREATE OR REPLACE FUNCTION collab.GetUnitPartnersFunc(
     contact_email             text
 ) AS $$
 BEGIN
-    RETURN QUERY SELECT
-        u.insert_timestamp,
-        u.id::text,
-        u.author_id::text,
-        u.created,
-        u.modified,
-        u.archived,
-        u.deleted,
-        u.type,
-        u.name,
-        u.description,
-        u.logo_url,
-        u.url,
-        u.external_id,
-        u.bypass_profile_moderation,
-        u.parent_id::text,
-        u.portal_id::text,
-        u.contact_firstname,
-        u.contact_lastname,
-        u.contact_phone,
-        u.contact_email
-FROM collab.units u
-         inner join collab.activity_to_units au on u.id = au.unit_id
-         inner join
-     (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location,p_type)) ids
-     on au.activity_id = ids.ret_id
-   group by
-        u.insert_timestamp,
-        u.id::text,
-        u.author_id::text,
-        u.created,
-        u.modified,
-        u.archived,
-        u.deleted,
-        u.type,
-        u.name,
-        u.description,
-        u.logo_url,
-        u.url,
-        u.external_id,
-        u.bypass_profile_moderation,
-        u.parent_id::text,
-        u.portal_id::text,
-        u.contact_firstname,
-        u.contact_lastname,
-        u.contact_phone,
-        u.contact_email     
-    ORDER BY CASE
-        WHEN p_sort_by = 'name' THEN u.id::text
-        WHEN p_sort_by = 'type' THEN u.type::text
-        WHEN p_sort_by = 'contact_lastname' THEN  u.contact_lastname::text
-        ELSE u.name
-    END
-    || ' ' || p_sort_dir
-    LIMIT p_limit
-    OFFSET p_offset;
+    RETURN QUERY SELECT *
+                    FROM (SELECT
+                                u.insert_timestamp,
+                                u.id::text,
+                                u.author_id::text,
+                                u.created,
+                                u.modified,
+                                u.archived,
+                                u.deleted,
+                                u.type,
+                                u.name,
+                                u.description,
+                                u.logo_url,
+                                u.url,
+                                u.external_id,
+                                u.bypass_profile_moderation,
+                                u.parent_id::text,
+                                u.portal_id::text,
+                                u.contact_firstname,
+                                u.contact_lastname,
+                                u.contact_phone,
+                                u.contact_email
+                        FROM collab.v_units u
+                                inner join collab.v_activity_to_units au on u.id = au.unit_id
+                                inner join
+                            (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location,p_type)) ids
+                            on au.activity_id = ids.ret_id
+                        group by
+                                u.insert_timestamp,
+                                u.id::text,
+                                u.author_id::text,
+                                u.created,
+                                u.modified,
+                                u.archived,
+                                u.deleted,
+                                u.type,
+                                u.name,
+                                u.description,
+                                u.logo_url,
+                                u.url,
+                                u.external_id,
+                                u.bypass_profile_moderation,
+                                u.parent_id::text,
+                                u.portal_id::text,
+                                u.contact_firstname,
+                                u.contact_lastname,
+                                u.contact_phone,
+                                u.contact_email) AS tbl
+                ORDER BY
+                    CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (tbl.name) END ASC,
+                    CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN (tbl.name) END DESC,
+                    CASE WHEN (p_sort_by = 'created' OR p_sort_by IS NULL) AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (tbl.created) END ASC,
+                    CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN (tbl.created) END DESC,  
+                    CASE WHEN p_sort_by IS NULL THEN tbl.created END ASC                  
+                LIMIT p_limit
+                OFFSET p_offset; 
 END;
 $$ LANGUAGE plpgsql;
 
@@ -1264,7 +1207,7 @@ DECLARE
 BEGIN
     SELECT count(distinct fund.funder_id)
     INTO ret_count
-    FROM collab.activity_funders fund
+    FROM collab.v_activity_funders fund
              inner join (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location,p_type)) ids
                         on fund.activity_id = ids.ret_id;
      RETURN ret_count;
@@ -1487,15 +1430,15 @@ BEGIN
         fund.amount,
         fund.source,
         fund.deleted
-    FROM collab.activity_funders fund
+    FROM collab.v_activity_funders fund
              inner join (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location,p_type)) ids
                         on fund.activity_id = ids.ret_id
     ORDER BY
-        CASE WHEN p_sort_by = 'name' THEN fund.name END || ' ' || p_sort_dir,
-        CASE WHEN p_sort_by = 'insert_timestamp' THEN fund.insert_timestamp END || ' ' || p_sort_dir,
-        CASE WHEN p_sort_by = 'modified' THEN fund.modified END || ' ' || p_sort_dir,
-        CASE WHEN p_sort_by = 'activity_id' THEN fund.activity_id END || ' ' || p_sort_dir,
-        CASE WHEN p_sort_by = 'funder_id' THEN fund.funder_id END || ' ' || p_sort_dir
+        CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (fund.name) END ASC,
+		CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN (fund.name) END DESC,
+		CASE WHEN (p_sort_by = 'modified' OR p_sort_by IS NULL) AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (fund.modified) END ASC,
+		CASE WHEN p_sort_by = 'modified' AND upper(p_sort_dir) = 'DESC' THEN (fund.modified) END DESC,  
+        CASE WHEN p_sort_by IS NULL THEN fund.modified END ASC 
     LIMIT p_limit
     OFFSET p_offset;
 END;
@@ -1585,57 +1528,59 @@ CREATE OR REPLACE FUNCTION collab.GetTopUnitPartnersFunc(
     countActivities           bigint          
 ) AS $$
 BEGIN
-    RETURN QUERY SELECT
-        u.id::text,
-        u.author_id::text,
-        u.archived,
-        u.deleted,
-        u.type,
-        u.name,
-        u.description,
-        u.logo_url,
-        u.url,
-        u.external_id,
-        u.bypass_profile_moderation,
-        u.parent_id::text,
-        u.portal_id::text,
-        u.contact_firstname,
-        u.contact_lastname,
-        u.contact_phone,
-        u.contact_email,
-        count(au.activity_id) as countActivities
-FROM collab.v_units u
-         inner join collab.v_activity_to_units au on u.id = au.unit_id
-         inner join
-     (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location,p_type)) ids
-     on au.activity_id = ids.ret_id
-   group by
-        u.id::text,
-        u.author_id::text,
-        u.archived,
-        u.deleted,
-        u.type,
-        u.name,
-        u.description,
-        u.logo_url,
-        u.url,
-        u.external_id,
-        u.bypass_profile_moderation,
-        u.parent_id::text,
-        u.portal_id::text,
-        u.contact_firstname,
-        u.contact_lastname,
-        u.contact_phone,
-        u.contact_email     
-    ORDER BY count(au.activity_id) desc,CASE
-        WHEN p_sort_by = 'name' THEN u.id::text
-        WHEN p_sort_by = 'type' THEN u.type::text
-        WHEN p_sort_by = 'contact_lastname' THEN  u.contact_lastname::text
-        ELSE u.name
-    END
-    || ' ' || p_sort_dir
-    LIMIT p_limit
-    OFFSET p_offset;
+    RETURN QUERY SELECT *
+        FROM (SELECT
+                    u.id::text,
+                    u.author_id::text,
+                    u.created,
+                    u.archived,
+                    u.deleted,
+                    u.type,
+                    u.name,
+                    u.description,
+                    u.logo_url,
+                    u.url,
+                    u.external_id,
+                    u.bypass_profile_moderation,
+                    u.parent_id::text,
+                    u.portal_id::text,
+                    u.contact_firstname,
+                    u.contact_lastname,
+                    u.contact_phone,
+                    u.contact_email,
+                    count(au.activity_id) as countActivities
+            FROM collab.v_units u
+                    inner join collab.v_activity_to_units au on u.id = au.unit_id
+                    inner join
+                (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location,p_type)) ids
+                on au.activity_id = ids.ret_id
+            group by
+                    u.id::text,
+                    u.author_id::text,
+                    u.created,
+                    u.archived,
+                    u.deleted,
+                    u.type,
+                    u.name,
+                    u.description,
+                    u.logo_url,
+                    u.url,
+                    u.external_id,
+                    u.bypass_profile_moderation,
+                    u.parent_id::text,
+                    u.portal_id::text,
+                    u.contact_firstname,
+                    u.contact_lastname,
+                    u.contact_phone,
+                    u.contact_email) AS tbl
+                ORDER BY
+                    CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (tbl.name) END ASC,
+                    CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN (tbl.name) END DESC,
+                    CASE WHEN (p_sort_by = 'created' OR p_sort_by IS NULL) AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (tbl.created) END ASC,
+                    CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN (tbl.created) END DESC,  
+                    CASE WHEN p_sort_by IS NULL THEN tbl.created END ASC                  
+                LIMIT p_limit
+                OFFSET p_offset;
 END;
 $$ LANGUAGE plpgsql;
 
