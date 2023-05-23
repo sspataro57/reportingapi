@@ -175,10 +175,7 @@ CREATE OR REPLACE FUNCTION collab.GetActivitiesFunc(
 	p_include_communities boolean DEFAULT NULL,
 	p_include_units boolean DEFAULT NULL,
 	p_include_programs boolean DEFAULT NULL,
-	p_include_faculties boolean DEFAULT NULL,
-	p_include_courses boolean DEFAULT NULL,
-	p_include_pedagogies boolean DEFAULT NULL,
-	p_include_objectives boolean DEFAULT NULL
+	p_include_faculties boolean DEFAULT NULL
 )
 RETURNS TABLE (
     insert_timestamp       timestamp with time zone,
@@ -260,24 +257,18 @@ RETURNS TABLE (
     communities            text,
     units                  text,
     programs               text,
-    faculties              text, 
-    courses                text,
-    pedagogies             text,
-    objectives             text
+    faculties              text
 ) AS $$
 #variable_conflict use_column
 BEGIN
     RETURN QUERY
     SELECT collab.v_activities.*,ids.distance,
-    CASE WHEN p_include_address THEN (SELECT address::text FROM collab.getActivityAddressFunc(collab.v_activities.id)) END AS address,
-    CASE WHEN p_include_funders THEN (SELECT community_funders::text FROM collab.getFundersActivityFunc(collab.v_activities.id)) END AS funders,
-    CASE WHEN p_include_communities THEN (SELECT communities::text FROM collab.getActivityCommunityOrgFunc(collab.v_activities.id)) END AS communities,
-    CASE WHEN p_include_units THEN (SELECT units FROM collab.getActivityUnitsFunc(collab.v_activities.id)) END AS units,
-    CASE WHEN p_include_programs THEN (SELECT programs FROM collab.getActivityProgramsFunc(collab.v_activities.id)) END AS programs,
-    CASE WHEN p_include_faculties THEN (SELECT faculty FROM collab.getActivityFacultyStaffFunc(collab.v_activities.id)) END AS faculties,
-    CASE WHEN p_include_courses THEN (SELECT courses::text FROM collab.getActivityCoursesFunc(collab.v_activities.id)) END AS courses,
-    CASE WHEN p_include_pedagogies THEN (SELECT pedagogies FROM collab.getActivityPedagogiesFunc(collab.v_activities.id)) END AS pedagogies,
-    CASE WHEN p_include_objectives THEN (SELECT learning_objectives FROM collab.getActivityLearnigObjectivesFunc(collab.v_activities.id)) END AS objectives
+    CASE WHEN p_include_address THEN (SELECT address::text FROM collab.getActivityAddressFunc(collab.v_activities.id::varchar)) END AS address,
+    CASE WHEN p_include_funders THEN (SELECT community_funders::text FROM collab.getFundersActivityFunc(collab.v_activities.id::varchar)) END AS funders,
+    CASE WHEN p_include_communities THEN (SELECT communities::text FROM collab.getActivityCommunityOrgFunc(collab.v_activities.id::varchar)) END AS communities,
+    CASE WHEN p_include_units THEN (SELECT units FROM collab.getActivityUnitsFunc(collab.v_activities.id::varchar)) END AS units,
+    CASE WHEN p_include_programs THEN (SELECT programs FROM collab.getActivityProgramsFunc(collab.v_activities.id::varchar)) END AS programs,
+    CASE WHEN p_include_faculties THEN (SELECT faculty FROM collab.getActivityFacultyStaffFunc(collab.v_activities.id::varchar)) END AS faculties
     FROM collab.v_activities inner join
        (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location,p_type)) ids
                       on collab.v_activities.id=ids.ret_id
@@ -315,10 +306,7 @@ GRANT EXECUTE ON FUNCTION collab.GetActivitiesFunc(
 	p_include_communities boolean,
 	p_include_units boolean,
 	p_include_programs boolean,
-	p_include_faculties boolean,
-	p_include_courses boolean,
-	p_include_pedagogies boolean,
-	p_include_objectives boolean
+	p_include_faculties boolean
 ) TO api_readonly;
 
 
@@ -344,10 +332,7 @@ COMMENT ON FUNCTION collab.GetActivitiesFunc(
 	p_include_communities boolean,
 	p_include_units boolean,
 	p_include_programs boolean,
-	p_include_faculties boolean,
-	p_include_courses boolean,
-	p_include_pedagogies boolean,
-	p_include_objectives boolean
+	p_include_faculties boolean
 ) IS E'@name GetActivitiesFunc';
 
 ------------------------  collab.getCommunityPartnersCountFunc  --------------------
@@ -1714,7 +1699,7 @@ CREATE OR REPLACE FUNCTION collab.getinstitutionalpartnersActivitiesfunc(
     p_distance double precision DEFAULT NULL,
     p_virtual_location boolean DEFAULT NULL,
     p_type varchar DEFAULT NULL,
-    p_institution_id uuid DEFAULT NULL::uuid
+    p_institution_id varchar DEFAULT NULL
 
 ) RETURNS TABLE (
     insert_timestamp       timestamp with time zone,
@@ -1814,7 +1799,7 @@ BEGIN
                             ) ids ON p.activity_id = ids.ret_id
                             INNER JOIN collab.organizations org on p.institution_id = org.id
                             INNER JOIN collab.v_activities act ON act.id = ids.ret_id
-                            WHERE (p_institution_id IS NULL OR org.id = p_institution_id)) AS tbl 
+                            WHERE (p_institution_id IS NULL OR org.id = p_institution_id::uuid)) AS tbl 
                     ORDER BY
                         CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN name END ASC,
                         CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN name END DESC,
@@ -1843,7 +1828,7 @@ GRANT EXECUTE ON FUNCTION collab.getinstitutionalpartnersActivitiesfunc(
     p_distance double precision,
     p_virtual_location boolean,
     p_type varchar,
-    p_institution_id uuid
+    p_institution_id varchar
 ) TO api_readonly;
 
 
@@ -1864,7 +1849,7 @@ COMMENT ON FUNCTION collab.getinstitutionalpartnersActivitiesfunc(
     p_distance double precision,
     p_virtual_location boolean,
     p_type varchar,
-    p_institution_id uuid
+    p_institution_id varchar
 ) IS E'@name getinstitutionalpartnersActivitiesfunc';
 
 
@@ -1888,7 +1873,7 @@ CREATE OR REPLACE FUNCTION collab.getfacstaffActivitiesfunc(
     p_distance double precision DEFAULT NULL,
     p_virtual_location boolean DEFAULT NULL,
     p_type varchar DEFAULT NULL,
-    p_user_id uuid DEFAULT NULL::uuid
+    p_user_id varchar DEFAULT NULL
 
 ) RETURNS TABLE (
     insert_timestamp       timestamp with time zone,
@@ -1991,7 +1976,7 @@ BEGIN
                                     )
                             ) ids ON ua.entity_id = ids.ret_id AND ua.type <> 'proxy'
                             INNER JOIN collab.activities act ON act.id = ids.ret_id
-                            WHERE (p_user_id IS NULL OR u.id = p_user_id)
+                            WHERE (p_user_id IS NULL OR u.id = p_user_id::uuid)
                             ) tbl 
                     ORDER BY
                         CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN name END ASC,
@@ -2021,7 +2006,7 @@ GRANT EXECUTE ON FUNCTION collab.getfacstaffActivitiesfunc(
     p_distance double precision,
     p_virtual_location boolean,
     p_type varchar,
-    p_user_id uuid
+    p_user_id varchar
 ) TO api_readonly;
 
 
@@ -2042,7 +2027,7 @@ COMMENT ON FUNCTION collab.getfacstaffActivitiesfunc(
     p_distance double precision,
     p_virtual_location boolean,
     p_type varchar,
-    p_user_id uuid
+    p_user_id varchar
 ) IS E'@name getfacstaffActivitiesfunc';
 
 
@@ -2066,7 +2051,7 @@ CREATE OR REPLACE FUNCTION collab.getcommunitypartnersActivitiesfunc(
     p_distance double precision DEFAULT NULL,
     p_virtual_location boolean DEFAULT NULL,
     p_type varchar DEFAULT NULL,
-    p_community_id uuid DEFAULT NULL::uuid
+    p_community_id varchar DEFAULT NULL
 
 ) RETURNS TABLE (
     insert_timestamp       timestamp with time zone,
@@ -2166,7 +2151,7 @@ BEGIN
                             ) ids ON p.activity_id = ids.ret_id
                             INNER JOIN collab.organizations org ON p.community_id = org.id
                             INNER JOIN collab.v_activities act ON act.id = ids.ret_id
-                            WHERE (p_community_id IS NULL OR org.id = p_community_id)) AS tbl 
+                            WHERE (p_community_id IS NULL OR org.id = p_community_id::uuid)) AS tbl 
                     ORDER BY
                         CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN name END ASC,
                         CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN name END DESC,
@@ -2195,7 +2180,7 @@ GRANT EXECUTE ON FUNCTION collab.getcommunitypartnersActivitiesfunc(
     p_distance double precision,
     p_virtual_location boolean,
     p_type varchar,
-    p_community_id uuid
+    p_community_id varchar
 ) TO api_readonly;
 
 
@@ -2216,7 +2201,7 @@ COMMENT ON FUNCTION collab.getcommunitypartnersActivitiesfunc(
     p_distance double precision,
     p_virtual_location boolean,
     p_type varchar,
-    p_community_id uuid
+    p_community_id varchar
 ) IS E'@name getcommunitypartnersActivitiesfunc';
 
 ----------------------- activity funders Activities 
@@ -2239,7 +2224,7 @@ CREATE OR REPLACE FUNCTION collab.getactivityfundersActivitiesfunc(
     p_distance double precision DEFAULT NULL,
     p_virtual_location boolean DEFAULT NULL,
     p_type varchar DEFAULT NULL,
-    p_funder_id uuid DEFAULT NULL::uuid
+    p_funder_id varchar DEFAULT NULL
 
 ) RETURNS TABLE (
     insert_timestamp       timestamp with time zone,
@@ -2338,7 +2323,7 @@ BEGIN
                                 ) ids
                                 ON fund.activity_id = ids.ret_id
                     INNER JOIN collab.v_activities AS act ON act.id = ids.ret_id
-                    WHERE (p_funder_id IS NULL OR fund.funder_id = p_funder_id)
+                    WHERE (p_funder_id IS NULL OR fund.funder_id = p_funder_id::uuid)
                     ORDER BY
                         CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN act.name END ASC,
                         CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN act.name END DESC,
@@ -2367,7 +2352,7 @@ GRANT EXECUTE ON FUNCTION collab.getactivityfundersActivitiesfunc(
     p_distance double precision,
     p_virtual_location boolean,
     p_type varchar,
-    p_funder_id uuid
+    p_funder_id varchar
 ) TO api_readonly;
 
 
@@ -2388,7 +2373,7 @@ COMMENT ON FUNCTION collab.getactivityfundersActivitiesfunc(
     p_distance double precision,
     p_virtual_location boolean,
     p_type varchar,
-    p_funder_id uuid
+    p_funder_id varchar
 ) IS E'@name getactivityfundersActivitiesfunc';
 
 -------------- collab.getFacultyPartnersTotalFunc ----------------------------
@@ -2495,7 +2480,7 @@ COMMENT ON FUNCTION collab.getFacultyPartnersTotalFunc(
  
 drop function if exists collab.getActivityAddressFunc;
 CREATE OR REPLACE FUNCTION collab.getActivityAddressFunc(
-    p_activity_id uuid
+    p_activity_id varchar
 
 ) RETURNS TABLE (
     address text[]      
@@ -2515,25 +2500,25 @@ BEGIN
                             'virtual', virtual
                         )::text
                     FROM collab.v_activity_sites
-                    WHERE activity_id = p_activity_id
+                    WHERE activity_id = p_activity_id::uuid
                 ) AS address;
 END;
 $$ LANGUAGE plpgsql;
 
 GRANT EXECUTE ON FUNCTION collab.getActivityAddressFunc(
-    p_activity_id uuid
+    p_activity_id varchar
 ) TO api_readonly;
 
 
 COMMENT ON FUNCTION collab.getActivityAddressFunc(
-    p_activity_id uuid
+    p_activity_id varchar
 ) IS E'@name getActivityAddressFunc';
 
 ----------------------- Activity Units
  
 drop function if exists collab.getActivityUnitsFunc;
 CREATE OR REPLACE FUNCTION collab.getActivityUnitsFunc(
-    p_activity_id uuid
+    p_activity_id varchar
 
 ) RETURNS TABLE (
     units text     
@@ -2544,20 +2529,20 @@ BEGIN
                  FROM (SELECT u.name
                     FROM collab.v_units u
                     INNER JOIN collab.v_activity_to_units au ON u.id = au.unit_id
-                    WHERE au.activity_id = p_activity_id
+                    WHERE au.activity_id = p_activity_id::uuid
                     ORDER BY u.name) AS tbl;
 END;
 $$ LANGUAGE plpgsql;
 
 GRANT EXECUTE ON FUNCTION collab.getActivityUnitsFunc(
-    p_activity_id uuid
+    p_activity_id varchar
 ) TO api_readonly;
 
 ----------------------- Activity Programs
  
 drop function if exists collab.getActivityProgramsFunc;
 CREATE OR REPLACE FUNCTION collab.getActivityProgramsFunc(
-    p_activity_id uuid
+    p_activity_id varchar
 
 ) RETURNS TABLE (
     programs text     
@@ -2568,25 +2553,25 @@ BEGIN
                  FROM (SELECT p.name
                         FROM collab.v_activity_to_programs AS ap
                         INNER JOIN collab.v_programs_initiatives AS p ON p.id = ap.program_id
-                        WHERE ap.activity_id = p_activity_id
+                        WHERE ap.activity_id = p_activity_id::uuid
                         ORDER BY p.name) AS tbl;
 END;
 $$ LANGUAGE plpgsql;
 
 GRANT EXECUTE ON FUNCTION collab.getActivityProgramsFunc(
-    p_activity_id uuid
+    p_activity_id varchar
 ) TO api_readonly;
 
 
 COMMENT ON FUNCTION collab.getActivityProgramsFunc(
-    p_activity_id uuid
+    p_activity_id varchar
 ) IS E'@name getActivityProgramsFunc';
 
 ----------------------- Activity Faculty/Staff
  
 drop function if exists collab.getActivityFacultyStaffFunc;
 CREATE OR REPLACE FUNCTION collab.getActivityFacultyStaffFunc(
-    p_activity_id uuid
+    p_activity_id varchar
 
 ) RETURNS TABLE (
     faculty text     
@@ -2598,25 +2583,25 @@ BEGIN
                         FROM users.users u
                         INNER JOIN users.user_emails em ON u.id = em.user_id
                         INNER JOIN users.user_associations ua ON u.id = ua.user_id
-                        WHERE ua.entity_id = p_activity_id
+                        WHERE ua.entity_id = p_activity_id::uuid
                         ORDER BY u.id, u.firstname, u.lastname) AS tbl;
 END;
 $$ LANGUAGE plpgsql;
 
 GRANT EXECUTE ON FUNCTION collab.getActivityFacultyStaffFunc(
-    p_activity_id uuid
+    p_activity_id varchar
 ) TO api_readonly;
 
 
 COMMENT ON FUNCTION collab.getActivityFacultyStaffFunc(
-    p_activity_id uuid
+    p_activity_id varchar
 ) IS E'@name getActivityFacultyStaffFunc';
 
 ----------------------- Activity Community Organizations
  
 drop function if exists collab.getActivityCommunityOrgFunc;
 CREATE OR REPLACE FUNCTION collab.getActivityCommunityOrgFunc(
-    p_activity_id uuid
+    p_activity_id varchar
 
 ) RETURNS TABLE (communities text[]) AS $$
 BEGIN
@@ -2636,12 +2621,12 @@ END;
 $$ LANGUAGE plpgsql;
 
 GRANT EXECUTE ON FUNCTION collab.getActivityCommunityOrgFunc(
-    p_activity_id uuid
+    p_activity_id varchar
 ) TO api_readonly;
 
 
 COMMENT ON FUNCTION collab.getActivityCommunityOrgFunc(
-    p_activity_id uuid
+    p_activity_id varchar
 ) IS E'@name getActivityCommunityOrgFunc';
 
 ----------------------- Activity Community Organization Contact
@@ -2657,7 +2642,7 @@ drop function if exists collab.getActivityCommunityOrgRolesFunc;
  
 drop function if exists collab.getFundersActivityFunc;
 CREATE OR REPLACE FUNCTION collab.getFundersActivityFunc(
-    p_activity_id uuid
+    p_activity_id varchar
 
 ) RETURNS TABLE (
     community_funders text[]     
@@ -2673,109 +2658,348 @@ BEGIN
                             'dates', start_ts || ' - ' || end_ts
                         )::text
                         FROM collab.v_activity_funders
-                        WHERE activity_id = p_activity_id
+                        WHERE activity_id = p_activity_id::uuid
                     ) AS fund;
 END;
 $$ LANGUAGE plpgsql;
 
 GRANT EXECUTE ON FUNCTION collab.getFundersActivityFunc(
-    p_activity_id uuid
+    p_activity_id varchar
 ) TO api_readonly;
 
 
 COMMENT ON FUNCTION collab.getFundersActivityFunc(
-    p_activity_id uuid
+    p_activity_id varchar
 ) IS E'@name getFundersActivityFunc';
 
 ----------------------- Activity Courses
  
 drop function if exists collab.getActivityCoursesFunc;
 CREATE OR REPLACE FUNCTION collab.getActivityCoursesFunc(
-    p_activity_id uuid
+    p_portal_id varchar,
+    p_sort_by varchar DEFAULT 'name',
+    p_sort_dir varchar DEFAULT 'ASC',
+    p_limit integer DEFAULT 100,
+    p_offset integer DEFAULT 0,
+    p_status text DEFAULT NULL,
+    p_start_time timestamp DEFAULT NULL,
+    p_end_time timestamp DEFAULT NULL,
+    p_focus_areas jsonb DEFAULT NULL,
+    p_program_id varchar[] DEFAULT NULL::varchar[],
+    p_unit_id varchar[] DEFAULT NULL::varchar[],
+    p_longitude double precision DEFAULT NULL,
+    p_latitude double precision DEFAULT NULL,
+    p_distance double precision DEFAULT NULL,
+    p_virtual_location boolean DEFAULT NULL,
+    p_type varchar DEFAULT NULL,
+    p_activity_id varchar DEFAULT NULL
 
 ) RETURNS TABLE (
-    courses text[]     
+    activity_id varchar,
+    activity_name text,
+    activity_created timestamp with time zone,
+    courses text     
 ) AS $$
 #variable_conflict use_column
 BEGIN
-    RETURN QUERY SELECT ARRAY(
-                        SELECT ROW(name)::text
-                        FROM (SELECT DISTINCT ON (c.id) c.name
-                                FROM collab.v_activity_to_sections AS ats
-                                INNER JOIN collab.v_sections AS s ON s.id = ats.section_id
-                                INNER JOIN collab.v_courses AS c ON c.id = s.course_id
-                                WHERE ats.activity_id = p_activity_id) AS tbl
-                        ORDER BY name) AS courses;
+    RETURN QUERY SELECT * 
+                FROM (SELECT id::varchar, name, created, courses
+                        FROM (
+                            SELECT act.id, act.name, act.created, STRING_AGG(c.name, ',') AS courses
+                            FROM collab.v_activities AS act
+                            INNER JOIN (SELECT ret_id, distance
+                                        FROM collab.GetActivityIDsFunc(
+                                            p_portal_id,
+                                            p_status,
+                                            p_start_time,
+                                            p_end_time,
+                                            p_focus_areas,
+                                            p_program_id,
+                                            p_unit_id,
+                                            p_longitude,
+                                            p_latitude,
+                                            p_distance,
+                                            p_virtual_location,
+                                            p_type)
+                                    ) ids
+                            ON act.id = ids.ret_id
+                            INNER JOIN collab.v_activity_to_sections AS ats
+                            ON ats.activity_id = act.id
+                            INNER JOIN collab.v_sections AS s 
+                                ON s.id = ats.section_id
+                            INNER JOIN collab.v_courses AS c 
+                                ON c.id = s.course_id
+                            WHERE (p_activity_id IS NULL OR act.id = p_activity_id::uuid)
+                            GROUP BY act.id, act.name, act.created
+                        ) AS pedagogies
+                    ) AS tbl
+                    ORDER BY
+                        CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN name END ASC,
+                        CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN name END DESC,
+                        CASE WHEN p_sort_by = 'created' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN created END ASC,
+                        CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN created END DESC,
+                        CASE WHEN p_sort_by IS NULL THEN created END ASC                  
+                    LIMIT p_limit
+                    OFFSET p_offset;
 END;
 $$ LANGUAGE plpgsql;
 
 GRANT EXECUTE ON FUNCTION collab.getActivityCoursesFunc(
-    p_activity_id uuid
+    p_portal_id varchar,
+    p_sort_by varchar,
+    p_sort_dir varchar,
+    p_limit integer,
+    p_offset integer,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean,
+    p_type varchar,
+    p_activity_id varchar
 ) TO api_readonly;
 
 
 COMMENT ON FUNCTION collab.getActivityCoursesFunc(
-    p_activity_id uuid
+    p_portal_id varchar,
+    p_sort_by varchar,
+    p_sort_dir varchar,
+    p_limit integer,
+    p_offset integer,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean,
+    p_type varchar,
+    p_activity_id varchar
 ) IS E'@name getActivityCoursesFunc';
 
 ----------------------- Activity Pedagogies
  
 drop function if exists collab.getActivityPedagogiesFunc;
 CREATE OR REPLACE FUNCTION collab.getActivityPedagogiesFunc(
-    p_activity_id uuid
+    p_portal_id varchar,
+    p_sort_by varchar DEFAULT 'name',
+    p_sort_dir varchar DEFAULT 'ASC',
+    p_limit integer DEFAULT 100,
+    p_offset integer DEFAULT 0,
+    p_status text DEFAULT NULL,
+    p_start_time timestamp DEFAULT NULL,
+    p_end_time timestamp DEFAULT NULL,
+    p_focus_areas jsonb DEFAULT NULL,
+    p_program_id varchar[] DEFAULT NULL::varchar[],
+    p_unit_id varchar[] DEFAULT NULL::varchar[],
+    p_longitude double precision DEFAULT NULL,
+    p_latitude double precision DEFAULT NULL,
+    p_distance double precision DEFAULT NULL,
+    p_virtual_location boolean DEFAULT NULL,
+    p_type varchar DEFAULT NULL,
+    p_activity_id varchar DEFAULT NULL
 
 ) RETURNS TABLE (
+    activity_id varchar,
+    activity_name text,
+    activity_created timestamp with time zone,
     pedagogies text     
 ) AS $$
 #variable_conflict use_column
 BEGIN
-    RETURN QUERY SELECT STRING_AGG(pedagogy, ',')
-                    FROM (
-                        SELECT unnest(ats.pedagogies) AS pedagogy
-                        FROM collab.v_activity_to_sections AS ats
-                        INNER JOIN collab.v_sections AS s ON s.id = ats.section_id
-                        WHERE ats.activity_id = p_activity_id
-                    ) AS pedagogies;
+    RETURN QUERY SELECT * 
+                FROM (SELECT id::varchar, name, created, STRING_AGG(pedagogy, ',')
+                        FROM (
+                            SELECT act.id, act.name, act.created, unnest(ats.pedagogies) AS pedagogy
+                            FROM collab.v_activities AS act
+                            INNER JOIN (SELECT ret_id, distance
+                                        FROM collab.GetActivityIDsFunc(
+                                            p_portal_id,
+                                            p_status,
+                                            p_start_time,
+                                            p_end_time,
+                                            p_focus_areas,
+                                            p_program_id,
+                                            p_unit_id,
+                                            p_longitude,
+                                            p_latitude,
+                                            p_distance,
+                                            p_virtual_location,
+                                            p_type)
+                                    ) ids
+                            ON act.id = ids.ret_id
+                            INNER JOIN collab.v_activity_to_sections AS ats
+                            ON ats.activity_id = act.id
+                            INNER JOIN collab.v_sections AS s ON s.id = ats.section_id
+                            WHERE (p_activity_id IS NULL OR act.id = p_activity_id::uuid)
+                        ) AS pedagogies
+                        GROUP BY id, name, created) AS tbl
+                    ORDER BY
+                        CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN name END ASC,
+                        CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN name END DESC,
+                        CASE WHEN p_sort_by = 'created' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN created END ASC,
+                        CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN created END DESC,
+                        CASE WHEN p_sort_by IS NULL THEN created END ASC                  
+                    LIMIT p_limit
+                    OFFSET p_offset;
 END;
 $$ LANGUAGE plpgsql;
 
 GRANT EXECUTE ON FUNCTION collab.getActivityPedagogiesFunc(
-    p_activity_id uuid
+    p_portal_id varchar,
+    p_sort_by varchar,
+    p_sort_dir varchar,
+    p_limit integer,
+    p_offset integer,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean,
+    p_type varchar,
+    p_activity_id varchar
 ) TO api_readonly;
 
 
 COMMENT ON FUNCTION collab.getActivityPedagogiesFunc(
-    p_activity_id uuid
+    p_portal_id varchar,
+    p_sort_by varchar,
+    p_sort_dir varchar,
+    p_limit integer,
+    p_offset integer,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean,
+    p_type varchar,
+    p_activity_id varchar
 ) IS E'@name getActivityPedagogiesFunc';
 
 ----------------------- Activity Learnig Objectives
  
 drop function if exists collab.getActivityLearnigObjectivesFunc;
 CREATE OR REPLACE FUNCTION collab.getActivityLearnigObjectivesFunc(
-    p_activity_id uuid
+    p_portal_id varchar,
+    p_sort_by varchar DEFAULT 'name',
+    p_sort_dir varchar DEFAULT 'ASC',
+    p_limit integer DEFAULT 100,
+    p_offset integer DEFAULT 0,
+    p_status text DEFAULT NULL,
+    p_start_time timestamp DEFAULT NULL,
+    p_end_time timestamp DEFAULT NULL,
+    p_focus_areas jsonb DEFAULT NULL,
+    p_program_id varchar[] DEFAULT NULL::varchar[],
+    p_unit_id varchar[] DEFAULT NULL::varchar[],
+    p_longitude double precision DEFAULT NULL,
+    p_latitude double precision DEFAULT NULL,
+    p_distance double precision DEFAULT NULL,
+    p_virtual_location boolean DEFAULT NULL,
+    p_type varchar DEFAULT NULL,
+    p_activity_id varchar DEFAULT NULL
 
 ) RETURNS TABLE (
+    activity_id varchar,
+    activity_name text,
+    activity_created timestamp with time zone,
     learning_objectives text     
 ) AS $$
 #variable_conflict use_column
 BEGIN
-    RETURN QUERY SELECT STRING_AGG(objectives, ',')
-                    FROM (
-                        SELECT unnest(ats.learning_objectives) AS objectives
-                        FROM collab.v_activity_to_sections AS ats
-                        INNER JOIN collab.v_sections AS s ON s.id = ats.section_id
-                        WHERE ats.activity_id = p_activity_id
-                    ) AS learning_objectives;
+    RETURN QUERY SELECT * 
+                FROM (SELECT id::varchar, name, created, STRING_AGG(pedagogy, ',')
+                        FROM (
+                            SELECT act.id, act.name, act.created, unnest(ats.pedagogies) AS pedagogy
+                            FROM collab.v_activities AS act
+                            INNER JOIN (SELECT ret_id, distance
+                                        FROM collab.GetActivityIDsFunc(
+                                            p_portal_id,
+                                            p_status,
+                                            p_start_time,
+                                            p_end_time,
+                                            p_focus_areas,
+                                            p_program_id,
+                                            p_unit_id,
+                                            p_longitude,
+                                            p_latitude,
+                                            p_distance,
+                                            p_virtual_location,
+                                            p_type)
+                                    ) ids
+                            ON act.id = ids.ret_id
+                            INNER JOIN collab.v_activity_to_sections AS ats ON ats.activity_id = act.id
+                            INNER JOIN collab.v_sections AS s ON s.id = ats.section_id
+                            WHERE (p_activity_id IS NULL OR act.id = p_activity_id::uuid)
+                        ) AS pedagogies
+                        GROUP BY id, name, created) AS tbl
+                    ORDER BY
+                        CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN name END ASC,
+                        CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN name END DESC,
+                        CASE WHEN p_sort_by = 'created' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN created END ASC,
+                        CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN created END DESC,
+                        CASE WHEN p_sort_by IS NULL THEN created END ASC                  
+                    LIMIT p_limit
+                    OFFSET p_offset;
 END;
 $$ LANGUAGE plpgsql;
 
 GRANT EXECUTE ON FUNCTION collab.getActivityLearnigObjectivesFunc(
-    p_activity_id uuid
+    p_portal_id varchar,
+    p_sort_by varchar,
+    p_sort_dir varchar,
+    p_limit integer,
+    p_offset integer,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean,
+    p_type varchar,
+    p_activity_id varchar
 ) TO api_readonly;
 
 
 COMMENT ON FUNCTION collab.getActivityLearnigObjectivesFunc(
-    p_activity_id uuid
+    p_portal_id varchar,
+    p_sort_by varchar,
+    p_sort_dir varchar,
+    p_limit integer,
+    p_offset integer,
+    p_status text,
+    p_start_time timestamp,
+    p_end_time timestamp,
+    p_focus_areas jsonb,
+    p_program_id varchar[],
+    p_unit_id varchar[],
+    p_longitude double precision,
+    p_latitude double precision,
+    p_distance double precision,
+    p_virtual_location boolean,
+    p_type varchar,
+    p_activity_id varchar
 ) IS E'@name getActivityLearnigObjectivesFunc';
 
 
