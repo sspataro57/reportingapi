@@ -20,8 +20,11 @@ RETURNS TABLE (ret_id uuid, distance double precision)
 AS $$
 #variable_conflict use_column
 BEGIN
-    RETURN QUERY SELECT collab.v_activities.id, ST_DistanceSphere(ST_MakePoint(longitude, latitude), ST_MakePoint(p_longitude, p_latitude)) * 0.000621371 as distance
-                 FROM collab.v_activities
+    RETURN QUERY SELECT DISTINCT ON (collab.activities.id)
+                    collab.activities.id,
+                    ST_DistanceSphere(ST_MakePoint(longitude, latitude),
+                    ST_MakePoint(p_longitude, p_latitude)) * 0.000621371 as distance
+                 FROM collab.activities
                  WHERE portal_id = p_portal_id::uuid
                    AND (
                         p_status IS NULL OR
@@ -30,19 +33,19 @@ BEGIN
                             (p_status != 'published' AND status != 'published')
                         )
                     )
-                   AND (p_start_time IS NULL OR start_time > p_start_time - interval '1 second')
-                   AND (p_end_time IS NULL OR start_time < p_end_time + interval '1 second')
+                   AND (p_start_time IS NULL OR created > p_start_time )
+                   AND (p_end_time IS NULL OR created < p_end_time)
                    AND (p_focus_areas IS NULL OR focus_areas @> p_focus_areas)
                    AND (p_program_id IS NULL OR id IN (SELECT activity_id FROM collab.activity_to_programs WHERE program_id = ANY (CAST(p_program_id AS uuid[]))))
                    AND (p_unit_id IS NULL OR id IN (SELECT activity_id FROM collab.activity_to_units WHERE unit_id = ANY (CAST(p_unit_id AS uuid[]))))
                    AND (
                        p_longitude IS NULL AND p_latitude IS NULL
                        OR (
-                           (p_virtual_location = true AND (NOT EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.v_activities.id) OR EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.v_activities.id AND virtual = true)))
-                           OR (p_virtual_location = false AND NOT EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.v_activities.id AND virtual = true) AND ST_DistanceSphere(ST_MakePoint(longitude, latitude), ST_MakePoint(p_longitude, p_latitude)) * 0.000621371 < p_distance)
+                           (p_virtual_location = true AND (NOT EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.activities.id) OR EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.activities.id AND virtual = true)))
+                           OR (p_virtual_location = false AND NOT EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.activities.id AND virtual = true) AND ST_DistanceSphere(ST_MakePoint(longitude, latitude), ST_MakePoint(p_longitude, p_latitude)) * 0.000621371 < p_distance)
                        )
                    )
-                   AND (p_virtual_location IS NULL OR (p_virtual_location = true AND EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.v_activities.id AND virtual = true)) OR (p_virtual_location = false AND NOT EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.v_activities.id AND virtual = true)))
+                   AND (p_virtual_location IS NULL OR (p_virtual_location = true AND EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.activities.id AND virtual = true)) OR (p_virtual_location = false AND NOT EXISTS(SELECT 1 FROM collab.activity_sites WHERE activity_id = collab.activities.id AND virtual = true)))
                    AND (p_type IS NULL OR lower(type) = p_type);
 END;
 $$ LANGUAGE plpgsql;
@@ -71,10 +74,20 @@ RETURNS TABLE (portalid varchar, count integer)
 AS $$
 #variable_conflict use_column
 BEGIN
-    RETURN QUERY SELECT portal_id::varchar, count(id)::integer
-                 FROM collab.v_activities
-                 WHERE id IN (SELECT ret_id FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location,p_type))
-                 GROUP BY portal_id;
+    RETURN QUERY SELECT p_portal_id, count(tbl.ret_id)::integer 
+                    FROM (SELECT ret_id
+                    FROM collab.GetActivityIDsFunc(p_portal_id,
+                                                    p_status,
+                                                    p_start_time,
+                                                    p_end_time,
+                                                    p_focus_areas,
+                                                    p_program_id,p_unit_id,
+                                                    p_longitude,
+                                                    p_latitude,
+                                                    p_distance,
+                                                    p_virtual_location,
+                                                    p_type)
+                    ) tbl;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -253,21 +266,34 @@ RETURNS TABLE (
 #variable_conflict use_column
 BEGIN
     RETURN QUERY
-    SELECT collab.v_activities.*,ids.distance,
-    CASE WHEN p_include_address THEN (SELECT address::text FROM collab.getActivityAddressFunc(collab.v_activities.id::varchar)) END AS address,
-    CASE WHEN p_include_funders THEN (SELECT community_funders::text FROM collab.getFundersActivityFunc(collab.v_activities.id::varchar)) END AS funders,
-    CASE WHEN p_include_communities THEN (SELECT communities::text FROM collab.getActivityCommunityOrgFunc(collab.v_activities.id::varchar)) END AS communities,
-    CASE WHEN p_include_units THEN (SELECT units FROM collab.getActivityUnitsFunc(collab.v_activities.id::varchar)) END AS units,
-    CASE WHEN p_include_programs THEN (SELECT programs FROM collab.getActivityProgramsFunc(collab.v_activities.id::varchar)) END AS programs,
-    CASE WHEN p_include_faculties THEN (SELECT faculty FROM collab.getActivityFacultyStaffFunc(collab.v_activities.id::varchar)) END AS faculties
-    FROM collab.v_activities inner join
-       (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(p_portal_id, p_status, p_start_time, p_end_time, p_focus_areas, p_program_id,p_unit_id, p_longitude, p_latitude, p_distance, p_virtual_location,p_type)) ids
-                      on collab.v_activities.id=ids.ret_id
+        SELECT *,
+            CASE WHEN p_include_address THEN (SELECT address::text FROM collab.getActivityAddressFunc(id::varchar)) END AS address,
+            CASE WHEN p_include_funders THEN (SELECT community_funders::text FROM collab.getFundersActivityFunc(id::varchar)) END AS funders,
+            CASE WHEN p_include_communities THEN (SELECT communities::text FROM collab.getActivityCommunityOrgFunc(id::varchar)) END AS communities,
+            CASE WHEN p_include_units THEN (SELECT units FROM collab.getActivityUnitsFunc(id::varchar)) END AS units,
+            CASE WHEN p_include_programs THEN (SELECT programs FROM collab.getActivityProgramsFunc(id::varchar)) END AS programs,
+            CASE WHEN p_include_faculties THEN (SELECT faculty FROM collab.getActivityFacultyStaffFunc(id::varchar)) END AS faculties
+        FROM (SELECT DISTINCT ON (id) *
+                FROM (SELECT collab.activities.*,ids.distance
+                        FROM collab.activities INNER JOIN
+                        (SELECT ret_id,distance FROM collab.GetActivityIDsFunc(
+                                    p_portal_id,
+                                    p_status,
+                                    p_start_time,
+                                    p_end_time,
+                                    p_focus_areas,
+                                    p_program_id,p_unit_id,
+                                    p_longitude,
+                                    p_latitude,
+                                    p_distance,
+                                    p_virtual_location,
+                                    p_type)
+                            ) ids ON collab.activities.id = ids.ret_id) AS tbl1) tbl
     ORDER BY
-        CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (collab.v_activities.name) END ASC,
-		CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN (collab.v_activities.name) END DESC,
-		CASE WHEN (p_sort_by = 'created' OR p_sort_by IS NULL) AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (collab.v_activities.created) END ASC,
-		CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN (collab.v_activities.created) END DESC
+        CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (name) END ASC,
+		CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN (name) END DESC,
+		CASE WHEN (p_sort_by = 'created' OR p_sort_by IS NULL) AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (created) END ASC,
+		CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN (created) END DESC
     LIMIT p_limit
     OFFSET p_offset;
 END;
@@ -399,7 +425,7 @@ COMMENT ON FUNCTION collab.getCommunityPartnersCountFunc(
 
 
 
-
+ 
 
 
 ----------------------------   GetFacStaffCountFunc -----------------------------
@@ -539,7 +565,7 @@ BEGIN
                               )
                         ) ids ON ua.entity_id = ids.ret_id AND ua.type <> 'proxy'
                     ) subquery
-                    WHERE subquery.row_num = 1
+                    WHERE subquery.row_num = 1 
                     ORDER BY
                         CASE WHEN p_sort_by = 'firstname' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (firstname,lastname) END ASC,
                         CASE WHEN p_sort_by = 'firstname' AND upper(p_sort_dir) = 'DESC' THEN (firstname,lastname) END DESC,
@@ -547,7 +573,7 @@ BEGIN
                         CASE WHEN p_sort_by = 'lastname' AND upper(p_sort_dir) = 'DESC' THEN (lastname,firstname) END DESC,
                         CASE WHEN p_sort_by = 'email' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (email,firstname,lastname) END ASC,
                         CASE WHEN p_sort_by = 'email' AND upper(p_sort_dir) = 'DESC' THEN (email,firstname,lastname) END DESC,
-                        CASE WHEN p_sort_by IS NULL THEN (firstname,lastname) END ASC
+                        CASE WHEN p_sort_by IS NULL THEN (firstname,lastname) END ASC                  
                     LIMIT p_limit
                     OFFSET p_offset;
 END;
@@ -595,7 +621,7 @@ COMMENT ON FUNCTION collab.GetFacStaffFunc(
 
 
 ---------------  collab.getCommunityPartnersFunc -----------------------
-
+ 
 drop function if exists collab.getCommunityPartnersFunc;
 CREATE OR REPLACE FUNCTION collab.getCommunityPartnersFunc(
     p_portal_id varchar,
@@ -716,8 +742,8 @@ BEGIN
                     CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (tbl.name) END ASC,
                     CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN (tbl.name) END DESC,
                     CASE WHEN (p_sort_by = 'created' OR p_sort_by IS NULL) AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (tbl.created) END ASC,
-                    CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN (tbl.created) END DESC,
-                    CASE WHEN p_sort_by IS NULL THEN tbl.created END ASC
+                    CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN (tbl.created) END DESC,  
+                    CASE WHEN p_sort_by IS NULL THEN tbl.created END ASC                     
                 LIMIT p_limit
                 OFFSET p_offset;
 END;
@@ -963,8 +989,8 @@ BEGIN
                     CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (tbl.name) END ASC,
                     CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN (tbl.name) END DESC,
                     CASE WHEN (p_sort_by = 'created' OR p_sort_by IS NULL) AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (tbl.created) END ASC,
-                    CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN (tbl.created) END DESC,
-                    CASE WHEN p_sort_by IS NULL THEN tbl.created END ASC
+                    CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN (tbl.created) END DESC,  
+                    CASE WHEN p_sort_by IS NULL THEN tbl.created END ASC                  
                 LIMIT p_limit
                 OFFSET p_offset;
 END;
@@ -1172,10 +1198,10 @@ BEGIN
                     CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (tbl.name) END ASC,
                     CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN (tbl.name) END DESC,
                     CASE WHEN (p_sort_by = 'created' OR p_sort_by IS NULL) AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (tbl.created) END ASC,
-                    CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN (tbl.created) END DESC,
-                    CASE WHEN p_sort_by IS NULL THEN tbl.created END ASC
+                    CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN (tbl.created) END DESC,  
+                    CASE WHEN p_sort_by IS NULL THEN tbl.created END ASC                  
                 LIMIT p_limit
-                OFFSET p_offset;
+                OFFSET p_offset; 
 END;
 $$ LANGUAGE plpgsql;
 
@@ -1356,7 +1382,7 @@ FROM collab.units u
         u.contact_firstname,
         u.contact_lastname,
         u.contact_phone,
-        u.contact_email
+        u.contact_email     
     ORDER BY CASE
         WHEN p_sort_by = 'name' THEN u.id::text
         WHEN p_sort_by = 'type' THEN u.type::text
@@ -1407,7 +1433,7 @@ COMMENT ON FUNCTION collab.getUnitPartnersFunc(
     p_virtual_location boolean,
     p_type varchar
 ) IS E'@name GetUnitPartnersFunc';
-COMMENT ON FUNCTION collab.GetActivityFundersCountFunc(
+COMMENT ON FUNCTION collab.GetActivityFundersCountFunc(    
     p_portal_id varchar,
     p_status text,
     p_start_time timestamp,
@@ -1423,7 +1449,7 @@ COMMENT ON FUNCTION collab.GetActivityFundersCountFunc(
     p_founder_source varchar
 ) IS E'@name GetActivityFundersCountFunc';
 
-
+ 
 
 
 
@@ -1481,8 +1507,8 @@ BEGIN
         CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (fund.name) END ASC,
 		CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN (fund.name) END DESC,
 		CASE WHEN (p_sort_by = 'modified' OR p_sort_by IS NULL) AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (fund.modified) END ASC,
-		CASE WHEN p_sort_by = 'modified' AND upper(p_sort_dir) = 'DESC' THEN (fund.modified) END DESC,
-        CASE WHEN p_sort_by IS NULL THEN fund.modified END ASC
+		CASE WHEN p_sort_by = 'modified' AND upper(p_sort_dir) = 'DESC' THEN (fund.modified) END DESC,  
+        CASE WHEN p_sort_by IS NULL THEN fund.modified END ASC 
     LIMIT p_limit
     OFFSET p_offset;
 END;
@@ -1529,11 +1555,11 @@ COMMENT ON FUNCTION collab.GetActivityFundersFunc(
     p_type varchar,
     p_founder_source varchar
 ) IS E'@name GetActivityFundersFunc';
-
+ 
 
 
  ----------------------- unit partners top count
-
+ 
 drop function if exists collab.GetTopUnitPartnersFunc;
 CREATE OR REPLACE FUNCTION collab.GetTopUnitPartnersFunc(
     p_portal_id varchar,
@@ -1572,7 +1598,7 @@ CREATE OR REPLACE FUNCTION collab.GetTopUnitPartnersFunc(
     contact_lastname          text,
     contact_phone             text,
     contact_email             text,
-    countActivities           integer
+    countActivities           integer          
 ) AS $$
 BEGIN
     RETURN QUERY SELECT *
@@ -1624,8 +1650,8 @@ BEGIN
                     CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (tbl.name) END ASC,
                     CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN (tbl.name) END DESC,
                     CASE WHEN (p_sort_by = 'created' OR p_sort_by IS NULL) AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN (tbl.created) END ASC,
-                    CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN (tbl.created) END DESC,
-                    CASE WHEN p_sort_by IS NULL THEN tbl.created END ASC
+                    CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN (tbl.created) END DESC,  
+                    CASE WHEN p_sort_by IS NULL THEN tbl.created END ASC                  
                 LIMIT p_limit
                 OFFSET p_offset;
 END;
@@ -1671,7 +1697,7 @@ COMMENT ON FUNCTION collab.getTopUnitPartnersFunc(
 ) IS E'@name GetTopUnitPartnersFunc';
 
 ----------------------- institutional partners Activities
-
+ 
 drop function if exists collab.getinstitutionalpartnersActivitiesfunc;
 CREATE OR REPLACE FUNCTION collab.getinstitutionalpartnersActivitiesfunc(
     p_portal_id varchar,
@@ -1778,7 +1804,7 @@ CREATE OR REPLACE FUNCTION collab.getinstitutionalpartnersActivitiesfunc(
     units                  text,
     programs               text,
     faculties              text,
-    address                text
+    address                text          
 ) AS $$
 #variable_conflict use_column
 BEGIN
@@ -1808,13 +1834,13 @@ BEGIN
                             ) ids ON p.activity_id = ids.ret_id
                             INNER JOIN collab.organizations org on p.institution_id = org.id
                             INNER JOIN collab.v_activities act ON act.id = ids.ret_id
-                            WHERE (p_institution_id IS NULL OR org.id = p_institution_id::uuid)) AS tbl
+                            WHERE (p_institution_id IS NULL OR org.id = p_institution_id::uuid)) AS tbl 
                     ORDER BY
                         CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN name END ASC,
                         CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN name END DESC,
                         CASE WHEN p_sort_by = 'created' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN created END ASC,
                         CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN created END DESC,
-                        CASE WHEN p_sort_by IS NULL THEN created END ASC
+                        CASE WHEN p_sort_by IS NULL THEN created END ASC                  
                     LIMIT p_limit
                     OFFSET p_offset;
 END;
@@ -1875,7 +1901,7 @@ COMMENT ON FUNCTION collab.getinstitutionalpartnersActivitiesfunc(
 
 
 ----------------------- faculty staff Activities
-
+ 
 drop function if exists collab.getfacstaffActivitiesfunc;
 CREATE OR REPLACE FUNCTION collab.getfacstaffActivitiesfunc(
     p_portal_id varchar,
@@ -1982,7 +2008,7 @@ CREATE OR REPLACE FUNCTION collab.getfacstaffActivitiesfunc(
     units                  text,
     programs               text,
     faculties              text,
-    address                text
+    address                text        
 ) AS $$
 #variable_conflict use_column
 BEGIN
@@ -2016,13 +2042,13 @@ BEGIN
                             ) ids ON ua.entity_id = ids.ret_id AND ua.type <> 'proxy'
                             INNER JOIN collab.activities act ON act.id = ids.ret_id
                             WHERE (p_user_id IS NULL OR u.id = p_user_id::uuid)
-                            ) tbl
+                            ) tbl 
                     ORDER BY
                         CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN name END ASC,
                         CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN name END DESC,
                         CASE WHEN p_sort_by = 'created' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN created END ASC,
                         CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN created END DESC,
-                        CASE WHEN p_sort_by IS NULL THEN created END ASC
+                        CASE WHEN p_sort_by IS NULL THEN created END ASC                  
                     LIMIT p_limit
                     OFFSET p_offset;
 END;
@@ -2082,8 +2108,8 @@ COMMENT ON FUNCTION collab.getfacstaffActivitiesfunc(
 ) IS E'@name getfacstaffActivitiesfunc';
 
 
------------------------ community partners Activities
-
+----------------------- community partners Activities 
+ 
 drop function if exists collab.getcommunitypartnersActivitiesfunc;
 CREATE OR REPLACE FUNCTION collab.getcommunitypartnersActivitiesfunc(
     p_portal_id varchar,
@@ -2190,7 +2216,7 @@ CREATE OR REPLACE FUNCTION collab.getcommunitypartnersActivitiesfunc(
     units                  text,
     programs               text,
     faculties              text,
-    address                text
+    address                text          
 ) AS $$
 #variable_conflict use_column
 BEGIN
@@ -2220,13 +2246,13 @@ BEGIN
                             ) ids ON p.activity_id = ids.ret_id
                             INNER JOIN collab.organizations org ON p.community_id = org.id
                             INNER JOIN collab.v_activities act ON act.id = ids.ret_id
-                            WHERE (p_community_id IS NULL OR org.id = p_community_id::uuid)) AS tbl
+                            WHERE (p_community_id IS NULL OR org.id = p_community_id::uuid)) AS tbl 
                     ORDER BY
                         CASE WHEN p_sort_by = 'name' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN name END ASC,
                         CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN name END DESC,
                         CASE WHEN p_sort_by = 'created' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN created END ASC,
                         CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN created END DESC,
-                        CASE WHEN p_sort_by IS NULL THEN created END ASC
+                        CASE WHEN p_sort_by IS NULL THEN created END ASC                  
                     LIMIT p_limit
                     OFFSET p_offset;
 END;
@@ -2285,8 +2311,8 @@ COMMENT ON FUNCTION collab.getcommunitypartnersActivitiesfunc(
 	p_include_address boolean
 ) IS E'@name getcommunitypartnersActivitiesfunc';
 
------------------------ activity funders Activities
-
+----------------------- activity funders Activities 
+ 
 drop function if exists collab.getactivityfundersActivitiesfunc;
 CREATE OR REPLACE FUNCTION collab.getactivityfundersActivitiesfunc(
     p_portal_id varchar,
@@ -2393,7 +2419,7 @@ CREATE OR REPLACE FUNCTION collab.getactivityfundersActivitiesfunc(
     units                  text,
     programs               text,
     faculties              text,
-    address                text
+    address                text         
 ) AS $$
 #variable_conflict use_column
 BEGIN
@@ -2428,7 +2454,7 @@ BEGIN
                         CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN act.name END DESC,
                         CASE WHEN p_sort_by = 'created' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN act.created END ASC,
                         CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN act.created END DESC,
-                        CASE WHEN p_sort_by IS NULL THEN act.created END ASC
+                        CASE WHEN p_sort_by IS NULL THEN act.created END ASC                  
                     LIMIT p_limit
                     OFFSET p_offset;
 END;
@@ -2567,13 +2593,13 @@ COMMENT ON FUNCTION collab.getFacultyPartnersTotalFunc(
 ) IS E'@name getFacultyPartnersTotalFunc';
 
 ----------------------- Activity Addresses
-
+ 
 drop function if exists collab.getActivityAddressFunc;
 CREATE OR REPLACE FUNCTION collab.getActivityAddressFunc(
     p_activity_id varchar
 
 ) RETURNS TABLE (
-    address text
+    address text    
 ) AS $$
 #variable_conflict use_column
 BEGIN
@@ -2605,13 +2631,13 @@ COMMENT ON FUNCTION collab.getActivityAddressFunc(
 ) IS E'@name getActivityAddressFunc';
 
 ----------------------- Activity Units
-
+ 
 drop function if exists collab.getActivityUnitsFunc;
 CREATE OR REPLACE FUNCTION collab.getActivityUnitsFunc(
     p_activity_id varchar
 
 ) RETURNS TABLE (
-    units text
+    units text     
 ) AS $$
 #variable_conflict use_column
 BEGIN
@@ -2629,13 +2655,13 @@ GRANT EXECUTE ON FUNCTION collab.getActivityUnitsFunc(
 ) TO api_readonly;
 
 ----------------------- Activity Programs
-
+ 
 drop function if exists collab.getActivityProgramsFunc;
 CREATE OR REPLACE FUNCTION collab.getActivityProgramsFunc(
     p_activity_id varchar
 
 ) RETURNS TABLE (
-    programs text
+    programs text     
 ) AS $$
 #variable_conflict use_column
 BEGIN
@@ -2658,13 +2684,13 @@ COMMENT ON FUNCTION collab.getActivityProgramsFunc(
 ) IS E'@name getActivityProgramsFunc';
 
 ----------------------- Activity Faculty/Staff
-
+ 
 drop function if exists collab.getActivityFacultyStaffFunc;
 CREATE OR REPLACE FUNCTION collab.getActivityFacultyStaffFunc(
     p_activity_id varchar
 
 ) RETURNS TABLE (
-    faculty text
+    faculty text     
 ) AS $$
 #variable_conflict use_column
 BEGIN
@@ -2688,7 +2714,7 @@ COMMENT ON FUNCTION collab.getActivityFacultyStaffFunc(
 ) IS E'@name getActivityFacultyStaffFunc';
 
 ----------------------- Activity Community Organizations
-
+ 
 drop function if exists collab.getActivityCommunityOrgFunc;
 CREATE OR REPLACE FUNCTION collab.getActivityCommunityOrgFunc(
     p_activity_id varchar
@@ -2720,22 +2746,22 @@ COMMENT ON FUNCTION collab.getActivityCommunityOrgFunc(
 ) IS E'@name getActivityCommunityOrgFunc';
 
 ----------------------- Activity Community Organization Contact
-
+ 
 drop function if exists collab.getActivityCommunityOrgContactFunc;
 
 ----------------------- Activity Community Organization Roles
-
+ 
 drop function if exists collab.getActivityCommunityOrgRolesFunc;
 
 
 ----------------------- Activity Funders
-
+ 
 drop function if exists collab.getFundersActivityFunc;
 CREATE OR REPLACE FUNCTION collab.getFundersActivityFunc(
     p_activity_id varchar
 
 ) RETURNS TABLE (
-    community_funders text
+    community_funders text     
 ) AS $$
 #variable_conflict use_column
 BEGIN
@@ -2764,7 +2790,7 @@ COMMENT ON FUNCTION collab.getFundersActivityFunc(
 ) IS E'@name getFundersActivityFunc';
 
 ----------------------- Activity Courses
-
+ 
 drop function if exists collab.getActivityCoursesFunc;
 CREATE OR REPLACE FUNCTION collab.getActivityCoursesFunc(
     p_portal_id varchar,
@@ -2789,11 +2815,11 @@ CREATE OR REPLACE FUNCTION collab.getActivityCoursesFunc(
     activity_id varchar,
     activity_name text,
     activity_created timestamp with time zone,
-    courses text
+    courses text     
 ) AS $$
 #variable_conflict use_column
 BEGIN
-    RETURN QUERY SELECT *
+    RETURN QUERY SELECT * 
                 FROM (SELECT id::varchar, name, created, courses
                         FROM (
                             SELECT act.id, act.name, act.created, STRING_AGG(c.name, ',') AS courses
@@ -2816,9 +2842,9 @@ BEGIN
                             ON act.id = ids.ret_id
                             INNER JOIN collab.v_activity_to_sections AS ats
                             ON ats.activity_id = act.id
-                            INNER JOIN collab.v_sections AS s
+                            INNER JOIN collab.v_sections AS s 
                                 ON s.id = ats.section_id
-                            INNER JOIN collab.v_courses AS c
+                            INNER JOIN collab.v_courses AS c 
                                 ON c.id = s.course_id
                             WHERE (p_activity_id IS NULL OR act.id = p_activity_id::uuid)
                             GROUP BY act.id, act.name, act.created
@@ -2829,7 +2855,7 @@ BEGIN
                         CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN name END DESC,
                         CASE WHEN p_sort_by = 'created' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN created END ASC,
                         CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN created END DESC,
-                        CASE WHEN p_sort_by IS NULL THEN created END ASC
+                        CASE WHEN p_sort_by IS NULL THEN created END ASC                  
                     LIMIT p_limit
                     OFFSET p_offset;
 END;
@@ -2877,7 +2903,7 @@ COMMENT ON FUNCTION collab.getActivityCoursesFunc(
 ) IS E'@name getActivityCoursesFunc';
 
 ----------------------- Activity Pedagogies
-
+ 
 drop function if exists collab.getActivityPedagogiesFunc;
 CREATE OR REPLACE FUNCTION collab.getActivityPedagogiesFunc(
     p_portal_id varchar,
@@ -2902,11 +2928,11 @@ CREATE OR REPLACE FUNCTION collab.getActivityPedagogiesFunc(
     activity_id varchar,
     activity_name text,
     activity_created timestamp with time zone,
-    pedagogies text
+    pedagogies text     
 ) AS $$
 #variable_conflict use_column
 BEGIN
-    RETURN QUERY SELECT *
+    RETURN QUERY SELECT * 
                 FROM (SELECT id::varchar, name, created, STRING_AGG(pedagogy, ',')
                         FROM (
                             SELECT act.id, act.name, act.created, unnest(ats.pedagogies) AS pedagogy
@@ -2938,7 +2964,7 @@ BEGIN
                         CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN name END DESC,
                         CASE WHEN p_sort_by = 'created' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN created END ASC,
                         CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN created END DESC,
-                        CASE WHEN p_sort_by IS NULL THEN created END ASC
+                        CASE WHEN p_sort_by IS NULL THEN created END ASC                  
                     LIMIT p_limit
                     OFFSET p_offset;
 END;
@@ -2986,7 +3012,7 @@ COMMENT ON FUNCTION collab.getActivityPedagogiesFunc(
 ) IS E'@name getActivityPedagogiesFunc';
 
 ----------------------- Activity Learnig Objectives
-
+ 
 drop function if exists collab.getActivityLearnigObjectivesFunc;
 CREATE OR REPLACE FUNCTION collab.getActivityLearnigObjectivesFunc(
     p_portal_id varchar,
@@ -3011,11 +3037,11 @@ CREATE OR REPLACE FUNCTION collab.getActivityLearnigObjectivesFunc(
     activity_id varchar,
     activity_name text,
     activity_created timestamp with time zone,
-    learning_objectives text
+    learning_objectives text     
 ) AS $$
 #variable_conflict use_column
 BEGIN
-    RETURN QUERY SELECT *
+    RETURN QUERY SELECT * 
                 FROM (SELECT id::varchar, name, created, STRING_AGG(pedagogy, ',')
                         FROM (
                             SELECT act.id, act.name, act.created, unnest(ats.pedagogies) AS pedagogy
@@ -3046,7 +3072,7 @@ BEGIN
                         CASE WHEN p_sort_by = 'name' AND upper(p_sort_dir) = 'DESC' THEN name END DESC,
                         CASE WHEN p_sort_by = 'created' AND (upper(p_sort_dir) = 'ASC' OR p_sort_dir IS NULL) THEN created END ASC,
                         CASE WHEN p_sort_by = 'created' AND upper(p_sort_dir) = 'DESC' THEN created END DESC,
-                        CASE WHEN p_sort_by IS NULL THEN created END ASC
+                        CASE WHEN p_sort_by IS NULL THEN created END ASC                  
                     LIMIT p_limit
                     OFFSET p_offset;
 END;
